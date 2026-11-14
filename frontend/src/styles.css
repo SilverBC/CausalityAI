@@ -103,7 +103,6 @@ select:disabled { opacity: .6; }
 .theme-toggle { border-color: var(--line); background: var(--panel2); }
 .theme-toggle svg { transition: transform .3s ease; }
 .theme-toggle:active svg { transform: rotate(-30deg) scale(.9); }
-.acct-slot:empty { display: none; }
 
 .shell { display: flex; align-items: flex-start; }
 .shell-content { flex: 1; min-width: 0; }
@@ -273,21 +272,22 @@ html.theme-fade, html.theme-fade *, html.theme-fade *::before, html.theme-fade *
   .badge .badge-dot { width: 10px; height: 10px; }
 }
 @media (max-width: 560px) {
-  .topbar .badge { display: none; }
-  .topbar-right { gap: 4px; }
+  /* one row at 390 px: the logo goes (the Analysis link is home), spacing tightens */
+  .topbar { padding: 0 8px; gap: 4px; }
+  .topbar-left { gap: 4px; }
+  .topbar .badge, .topbar .brand { display: none; }
+  .topbar-right { gap: 2px; }
+  .side-toggle { margin-right: 0; }
   .nav-links { gap: 0; }
-  .nav-links a, .nav-links .disabled { padding: 6px 7px; font-size: .84rem; }
-  .brand span { display: none; }
-  .theme-toggle { border-color: transparent; background: transparent; }
+  .nav-links a, .nav-links .disabled { padding: 6px 6px; font-size: .82rem; }
+  .theme-toggle { border-color: transparent; background: transparent; width: 32px; height: 32px; }
+  .acct .btn.sm { padding: 5px 8px; }
   main { padding: 16px 16px 32px; }
   .card { padding: 16px; }
   .adv-grid { grid-template-columns: minmax(0, 1fr); }
   .span2 { grid-column: auto; }
   .samples { flex-direction: column; gap: 6px; }
   .export-btns { width: 100%; justify-content: flex-end; }
-}
-@media (max-width: 380px) {
-  .brand { display: none; }
 }
 
 /* ===== Investigation page ===== */
@@ -444,6 +444,71 @@ html.theme-fade, html.theme-fade *, html.theme-fade *::before, html.theme-fade *
   .inv-log .dot.running { animation: none; }
   .switch-track, .switch-thumb { transition: none; }
 }
+
+/* ===== Accounts ===== */
+.acct { position: relative; display: flex; gap: 6px; align-items: center; flex: none; }
+.acct-btn { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line); background: var(--panel2); color: var(--ink);
+  border-radius: 999px; padding: 3px 12px 3px 3px; cursor: pointer; font: inherit; max-width: 240px; }
+.acct-avatar { width: 28px; height: 28px; flex: none; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
+  background: var(--accent); color: var(--accent-ink); font-weight: 700; font-size: .78rem; letter-spacing: .02em; }
+.acct-email { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acct-menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 40; min-width: 220px; max-width: calc(100vw - 24px); background: var(--panel);
+  border: 1px solid var(--line); border-radius: 12px; padding: 10px; box-shadow: 0 10px 30px rgba(15,23,42,.18); display: grid; gap: 6px; }
+.acct-menu-email { overflow-wrap: anywhere; }
+.auth-dialog { width: min(400px, calc(100vw - 32px)); }
+.field { display: grid; gap: 4px; }
+.field .lbl { margin: 0; }
+.field input { font-size: 16px; }
+.auth-switch { text-align: center; }
+.guest-nudge { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 10px 14px; border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 9%, var(--panel)); border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); color: var(--ink2); }
+.banner-warn { border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); background: var(--warn-bg); color: var(--ink); }
+.mail-note { margin: -6px 0 0; }
+
+/* ===== Confirm dialog (the app's own; no native confirm) ===== */
+.btn.danger { background: var(--fail); color: #fff; border-color: var(--fail); }
+.btn.danger:hover { filter: brightness(1.08); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .btn.danger { color: #1a0b0b; } }
+:root[data-theme="dark"] .btn.danger { color: #1a0b0b; }
+.confirm-dialog { width: min(440px, calc(100vw - 32px)); animation: confirm-in .14s ease-out; }
+@keyframes confirm-in { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: none; } }
+.confirm-body { display: flex; gap: 14px; padding: 20px 20px 4px; align-items: flex-start; }
+.confirm-icon { flex: none; width: 40px; height: 40px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
+  background: var(--fail-bg); color: var(--fail); }
+.confirm-icon.warn { background: var(--warn-bg); color: var(--warn); }
+.confirm-text { min-width: 0; }
+.confirm-text h2 { font-size: 1.02rem; line-height: 1.35; margin: 2px 0 6px; overflow-wrap: anywhere; }
+.confirm-text p { color: var(--ink2); margin: 0 0 8px; white-space: pre-line; font-size: .9rem; }
+.confirm-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 20px 18px; }
+
+/* ===== Sidebar delete controls: the trash replaces the grade on hover ===== */
+.side-list > li { position: relative; }
+.side-del { position: absolute; top: 4px; right: 4px; opacity: 0; }
+.side-list > li:hover .side-del, .side-del:focus-visible { opacity: 1; }
+.side-list > li:hover .side-grade, .side-list > li:focus-within .side-grade { visibility: hidden; }
+.side-invs li { display: flex; align-items: center; }
+.side-invs li a { flex: 1; min-width: 0; }
+.side-invs .row-del { width: 24px; height: 24px; opacity: 0; }
+.side-invs li:hover .row-del, .side-invs .row-del:focus-visible { opacity: 1; }
+@media (hover: none) {  /* touch: no hover, so the controls are always there */
+  .side-del, .side-invs .row-del { opacity: 1; }
+  .side-list > li .side-grade { visibility: visible; }
+  .side-item { padding-right: 32px; }
+}
+
+@media (max-width: 900px) {
+  .acct-email { display: none; }
+  .acct-btn { padding: 2px; border-color: transparent; background: transparent; }
+}
+@media (max-width: 560px) {
+  .acct-create { display: none; }
+  /* phones: the confirmation is a bottom sheet with full-width buttons, Cancel last */
+  .confirm-dialog { width: 100%; max-width: 100%; margin: auto 0 0; border-radius: 18px 18px 0 0; border-bottom: 0; animation-name: confirm-up; }
+  .confirm-actions { flex-direction: column-reverse; padding-bottom: max(18px, env(safe-area-inset-bottom)); }
+  .confirm-actions .btn { width: 100%; padding: 12px; }
+}
+@keyframes confirm-up { from { transform: translateY(40%); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .confirm-dialog { animation: none; } }
 
 /* ===== Reduced motion: every animation has a still alternative ===== */
 @media (prefers-reduced-motion: reduce) {

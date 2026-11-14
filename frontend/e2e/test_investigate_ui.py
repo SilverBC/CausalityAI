@@ -1,19 +1,18 @@
 """Browser tests for the Investigation page ("sleuth mode"), with the fake language model (2.5 s searches)."""
 import json
 import re
-import urllib.request
 
 import pytest
 
-from conftest import ROOT, SHOTS, assert_layout, new_page, run_lalonde
+from conftest import ROOT, SHOTS, assert_layout, confirm_dialog, new_page, run_lalonde
 
 pytestmark = pytest.mark.skipif(not (ROOT / "frontend" / "dist" / "index.html").exists(),
                                 reason="frontend not built (npm run build)")
 
 
-def api(base_url, path):
-    with urllib.request.urlopen(base_url + path) as r:
-        return json.loads(r.read())
+def api(page, path):
+    """GET through the page, so the request carries this browser's guest id (the API answers 404 to anyone else)."""
+    return page.evaluate(f"fetch({json.dumps(path)}).then(r => r.json())")
 
 
 def open_investigation(page, base_url):
@@ -74,7 +73,7 @@ def test_investigate_one_variable(browser, base_url):
     assert "Original name: Pre-program earnings dip" in panel.inner_text()
     stored = page.evaluate(f"localStorage.getItem('causal-audit:names:{job}')")
     assert "Renamed-by-test 7f3a" in stored
-    invs = api(base_url, f"/api/jobs/{job}/investigations")
+    invs = api(page, f"/api/jobs/{job}/investigations")
     assert "Renamed-by-test" not in json.dumps(invs)
 
     # the sidebar lists the investigated variable as a deep link
@@ -83,10 +82,10 @@ def test_investigate_one_variable(browser, base_url):
     # delete it (temporary native confirm: accept)
     page.goto(f"{base_url}/#/investigate/{job}?node=treat")
     page.get_by_text("Investigated in").wait_for()
-    page.once("dialog", lambda d: d.accept())
     page.get_by_role("button", name="Delete investigation").click()
+    confirm_dialog(page).get_by_role("button", name="Delete investigation").click()
     page.get_by_role("button", name="Investigate causes of “treat”").wait_for()
-    assert api(base_url, f"/api/jobs/{job}/investigations") == []
+    assert api(page, f"/api/jobs/{job}/investigations") == []
     assert page.errors == [], page.errors
 
 
@@ -101,17 +100,19 @@ def test_investigate_several_and_the_queue(browser, base_url):
     page.locator(".multi-status").wait_for()
     assert "2 running" in page.locator(".multi-status").inner_text()
 
-    # investigate all -> the heavy-use warning first; dismissing it queues nothing
-    msgs = []
-    page.once("dialog", lambda d: (msgs.append(d.message), d.dismiss()))
+    # investigate all -> the heavy-use warning first (warn tone); cancelling it queues nothing
     page.get_by_role("button", name=re.compile(r"^Investigate all \(\d+\)$")).click()
-    assert msgs and "uses a lot of your Claude usage" in msgs[0] and re.search(r"roughly \d+–\d+ minutes", msgs[0])
-    assert len(api(base_url, f"/api/jobs/{job}/investigations")) == 2
+    dlg = confirm_dialog(page)
+    text = dlg.inner_text()
+    assert "uses a lot of your Claude usage" in text and re.search(r"roughly \d+–\d+ minutes", text)
+    assert "warn" in dlg.get_attribute("class") and dlg.locator(".btn.primary").count() == 1
+    dlg.get_by_role("button", name="Cancel").click()
+    assert len(api(page, f"/api/jobs/{job}/investigations")) == 2
 
-    page.once("dialog", lambda d: d.accept())
     page.get_by_role("button", name=re.compile(r"^Investigate all \(\d+\)$")).click()
+    confirm_dialog(page).get_by_role("button", name=re.compile("^Queue ")).click()
     page.wait_for_function("document.querySelector('.multi-status')?.textContent.includes('queued')")
-    items = api(base_url, f"/api/jobs/{job}/investigations")
+    items = api(page, f"/api/jobs/{job}/investigations")
     assert sum(i["status"] == "running" for i in items) == 3
     queued = [i for i in items if i["status"] == "queued"]
     assert len(queued) >= 3 and [i["position"] for i in queued] == list(range(1, len(queued) + 1))
@@ -123,7 +124,7 @@ def test_investigate_several_and_the_queue(browser, base_url):
     page.wait_for_function(f"!document.querySelector('.multi-list').textContent.includes('#{len(queued)} in queue')")
     page.get_by_role("button", name="Cancel queued").click()
     page.wait_for_function("!document.querySelector('.multi-list').textContent.includes('in queue')")
-    assert all(i["status"] != "queued" for i in api(base_url, f"/api/jobs/{job}/investigations"))
+    assert all(i["status"] != "queued" for i in api(page, f"/api/jobs/{job}/investigations"))
 
     # findings appear as each finishes; the sidebar shows the counts
     page.wait_for_function("document.querySelectorAll('.multi-list .link-btn.ok').length >= 3", timeout=30_000)

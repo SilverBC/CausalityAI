@@ -4,6 +4,7 @@ import {
   INVESTIGATIONS_EVENT, cancelQueuedInvestigations, deleteInvestigation, fetchInfluence, fetchInvestigations,
   investigationsChanged, startInvestigation, startInvestigations,
 } from "../../api.js";
+import { confirmAction } from "../ConfirmDialog.jsx";
 
 /** The influence graph at a data-search depth; the analysis's own depth is already in the result. */
 export function useDepthGraph(base, jobId) {
@@ -94,8 +95,10 @@ export function useInvestigations(jobId) {
   const cancel = (node) => act(() => deleteInvestigation(jobId, node)); // nothing has run yet: no question asked
   const cancelQueued = () => act(() => cancelQueuedInvestigations(jobId));
   async function remove(node, label) {
-    // Temporary native confirm; stage 04 replaces it with the app's own dialog.
-    if (!window.confirm(`Delete the investigation of “${label || node}”?\n\nIts hypothetical findings are removed from the graph. You can investigate this variable again later.`)) return false;
+    if (!(await confirmAction({
+      title: `Delete the investigation of “${label || node}”?`, confirmLabel: "Delete investigation",
+      message: "Its hypothetical findings are removed from the graph. You can investigate this variable again later.",
+    }))) return false;
     return (await act(() => deleteInvestigation(jobId, node))) !== null;
   }
 

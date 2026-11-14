@@ -1,6 +1,7 @@
 /* Queue literature investigations of several variables, or of every variable on the graph.
    The server runs 3 at a time and queues the rest (40 running + queued at most per analysis). */
 import { useMemo, useState } from "react";
+import { confirmAction } from "./ConfirmDialog.jsx";
 import { ROLE_LABEL } from "./graph/theme.js";
 
 export const NOT_INVESTIGABLE = new Set(["latent", "fixed_effect", "group"]);
@@ -16,13 +17,17 @@ export function estimateMinutes(n) {
 function heavyWarning(n, room, all) {
   const k = Math.min(n, room);
   const [lo, hi] = estimateMinutes(k);
-  // Temporary native confirm; stage 04 replaces it with the app's own dialog.
-  return window.confirm(
-    `${all ? `Investigate all ${n} variables?` : `Investigate ${n} variables?`}\n\n` +
-    `This queues ${k} literature searches. Each is a Claude web search that takes 30 seconds to 2 minutes, and ${PARALLEL} run at a ` +
-    `time, so expect roughly ${lo}–${hi} minutes in total.\n\nIt's heavy and uses a lot of your Claude usage. Every search adds ` +
-    "hypothetical variables to the graph.\n" + (n > room ? `Only ${room} fit in the queue right now; the rest are skipped.\n` : "") +
-    "\nYou can cancel queued searches at any time.");
+  return confirmAction({
+    tone: "warn",
+    title: all ? `Investigate all ${n} variables?` : `Investigate ${n} variables?`,
+    message:
+      `This queues ${k} literature searches. Each is a Claude web search that takes 30 seconds to 2 minutes, and ` +
+      `${PARALLEL} run at a time, so expect roughly ${lo}–${hi} minutes in total.\n` +
+      "It's heavy and uses a lot of your Claude usage. Every search adds hypothetical variables to the graph.\n" +
+      (n > room ? `Only ${room} fit in the queue right now; the rest are skipped.\n` : "") +
+      "You can cancel queued searches at any time.",
+    confirmLabel: `Queue ${k} investigation${k === 1 ? "" : "s"}`,
+  });
 }
 
 export default function MultiInvestigate({ nodes, items, startMany, cancel, cancelQueued, onSelect, nameOf, error }) {
@@ -43,7 +48,7 @@ export default function MultiInvestigate({ nodes, items, startMany, cancel, canc
 
   async function queue(list, all) {
     if (!list.length) return;
-    if ((all || list.length >= WARN_AT) && !heavyWarning(list.length, room, all)) return;
+    if ((all || list.length >= WARN_AT) && !(await heavyWarning(list.length, room, all))) return;
     setBusy(true);
     await startMany(list.slice(0, room));
     setSel(new Set());

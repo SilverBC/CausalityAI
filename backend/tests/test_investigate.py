@@ -23,7 +23,7 @@ def boot():
     for m in [m for m in sys.modules if m == "app" or m == "services" or m.startswith("services.")]:
         del sys.modules[m]
     import app as app_mod
-    return TestClient(app_mod.app)
+    return TestClient(app_mod.app, headers={"X-Guest-Id": "test-guest-0001"})  # like the browser does
 
 
 def finished_analysis(c, sample="lalonde_experimental"):

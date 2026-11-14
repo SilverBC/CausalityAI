@@ -43,7 +43,7 @@ const MODE_HINT = {
 };
 const ACCEPT = ".csv,.tsv,.txt,.xlsx,.xls,.json,.parquet";
 
-export default function Intake({ form, setForm, running, error, onRun, onReset, llm }) {
+export default function Intake({ form, setForm, running, error, onRun, onReset, llm, notify = null }) {
   const [samples, setSamples] = useState([]);
   const [dragOver, setDragOver] = useState(false);
   const [cols, setCols] = useState({ state: "idle", list: [], rows: null, error: "" });
@@ -198,6 +198,12 @@ export default function Intake({ form, setForm, running, error, onRun, onReset, 
           <input type="checkbox" checked={form.online} onChange={(e) => set({ online: e.target.checked })} />
           <span>Search for related reading online</span>
         </label>
+        {notify && (
+          <label className="check-opt small">
+            <input type="checkbox" checked={notify.on} onChange={(e) => notify.set(e.target.checked)} />
+            <span>Email me at {notify.email} when it's done</span>
+          </label>
+        )}
         {error && <span className="err" role="alert">{error}</span>}
       </div>
     </section>

@@ -1,8 +1,12 @@
 /* Your saved analyses: title, grade, mode and age; a spinner while running; a link to each graph's Investigation page
    with counts, and for the open analysis its investigated variables. Refreshes while anything runs and whenever an
-   analysis or investigation starts or finishes. (Delete buttons come in stage 04.) */
+   analysis or investigation starts or finishes, and when the user signs in or out. Hovering an analysis swaps its
+   grade for a delete button; every delete asks first. */
 import { useEffect, useState } from "react";
-import { DATASETS_EVENT, INVESTIGATIONS_EVENT, fetchDatasets } from "../api.js";
+import { DATASETS_EVENT, INVESTIGATIONS_EVENT, deleteAnalysis, deleteInvestigation, fetchDatasets, investigationsChanged } from "../api.js";
+import { useOnAuthChange } from "../auth.jsx";
+import { confirmAction, whatGoesWith } from "./ConfirmDialog.jsx";
+import { TrashIcon } from "./icons.jsx";
 import { MODE_LABEL, ago } from "../format.js";
 
 const GRADE_CLASS = { A: "pass", B: "pass", C: "warn", D: "fail", E: "fail", F: "fail" };
@@ -14,7 +18,7 @@ function meta(d) {
   return `${MODE_LABEL[d.mode] || d.mode} · ${ago(d.created)}`;
 }
 
-function InvestigationLinks({ d, active, route }) {
+function InvestigationLinks({ d, active, route, onError }) {
   const invs = d.investigations || [];
   const done = invs.filter((i) => i.status === "done");
   const running = invs.filter((i) => i.status === "running").length;
@@ -42,6 +46,8 @@ function InvestigationLinks({ d, active, route }) {
                 aria-current={focus === i.node ? "page" : undefined}>
                 {i.label} <span className="muted">· {i.found}</span>
               </a>
+              <button className="row-del" onClick={() => removeInvestigation(d, i, onError)} aria-label={`Delete the investigation of ${i.label}`}
+                title="Delete investigation"><TrashIcon size={14} /></button>
             </li>
           ))}
         </ul>
@@ -50,11 +56,33 @@ function InvestigationLinks({ d, active, route }) {
   );
 }
 
-export default function Sidebar({ currentJobId, route, onNew, onClose }) {
+async function removeInvestigation(d, i, onError) {
+  if (!(await confirmAction({ title: `Delete the investigation of “${i.label}”?`, confirmLabel: "Delete investigation",
+    message: "Its hypothetical findings are removed from the graph. You can investigate this variable again later." }))) return;
+  try {
+    await deleteInvestigation(d.id, i.node);
+    investigationsChanged(d.id);
+  } catch (e) { onError(e.message); }
+}
+
+export default function Sidebar({ currentJobId, route, onNew, onClose, onDeleted }) {
   const [items, setItems] = useState(null);
   const [error, setError] = useState("");
 
+  async function removeAnalysis(d) {
+    const extra = whatGoesWith({ investigations: d.investigations?.length || 0, chats: d.chats?.length || 0 });
+    if (!(await confirmAction({ title: `Delete “${d.title}”?`, confirmLabel: "Delete analysis",
+      message: `${extra}This can't be undone.` }))) return;
+    setError("");
+    try {
+      await deleteAnalysis(d.id);
+      setItems((xs) => xs.filter((x) => x.id !== d.id));
+      onDeleted?.(d.id);
+    } catch (e) { setError(e.message); }
+  }
+
   const load = () => fetchDatasets().then((x) => { setItems(x); setError(""); }).catch((e) => setError(e.message));
+  useOnAuthChange(() => load());
   useEffect(() => {
     load();
     window.addEventListener(DATASETS_EVENT, load);
@@ -87,8 +115,13 @@ export default function Sidebar({ currentJobId, route, onNew, onClose }) {
                 <span className="side-title">{d.title}</span>
                 {d.grade && <span className={`side-grade ${GRADE_CLASS[d.grade] || ""}`} title={`Design grade ${d.grade}`}>{d.grade}</span>}
               </a>
+              {d.status !== "running" && (
+                <button className="row-del side-del" onClick={() => removeAnalysis(d)} aria-label={`Delete ${d.title}`} title="Delete analysis">
+                  <TrashIcon />
+                </button>
+              )}
               <div className="side-meta small muted">{meta(d)}</div>
-              {d.status === "done" && d.has_graph && <InvestigationLinks d={d} active={active} route={route} />}
+              {d.status === "done" && d.has_graph && <InvestigationLinks d={d} active={active} route={route} onError={setError} />}
             </li>
           );
         })}

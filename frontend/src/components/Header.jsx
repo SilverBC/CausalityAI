@@ -1,3 +1,4 @@
+import { AccountButton } from "../auth.jsx";
 import { ThemeToggle } from "../theme.jsx";
 import { Logo, SidebarIcon } from "./icons.jsx";
 
@@ -40,7 +41,7 @@ export default function Header({ health, route, graphJobId, sideOpen, onToggleSi
       <div className="topbar-right">
         <ClaudeBadge health={health} />
         <ThemeToggle />
-        <div className="acct-slot" />
+        <AccountButton />
       </div>
     </header>
   );

@@ -39,3 +39,15 @@ export const Logo = ({ size = 26 }) => (
     <path d="M17 12l4 4-4 4" fill="none" stroke="var(--ink2)" strokeWidth="2.5" />
   </svg>
 );
+
+export const TrashIcon = (p) => (
+  <Svg size={16} {...p} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+    <path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3" />
+  </Svg>
+);
+
+export const WarnIcon = (p) => (
+  <Svg size={16} {...p} fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 3.5 2.5 20h19z" /><path d="M12 10v4.5M12 17.3v.2" />
+  </Svg>
+);

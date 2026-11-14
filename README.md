@@ -52,6 +52,8 @@ Settings come from environment variables or a `.env` file in the project root (g
 | `ANTHROPIC_API_KEY` | none | Key for `api` (or sign in with `ant auth login`) |
 | `CAUSAL_API_MODEL` | `claude-opus-5-5` | Model for `api` |
 | `CAUSAL_DATA_DIR` | `data/` | Where the database (`causal.db`) and per-analysis files (`blobs/`) live |
+| `RESEND_API_KEY`, `MAIL_FROM` | none | "Analysis ready" email through Resend. Without a verified domain Resend only delivers to the Resend account's own address |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | none | Email fallback over SMTP (e.g. Gmail with an app password) |
 
 The analysis itself never uses a language model. Claude only writes the executive summary (with a plain template
 when it is unavailable) and handles claim-only mode (a claim with no data), which needs it. `GET /api/health` shows
@@ -61,8 +63,8 @@ which backend is active and its last error; `?probe=true` makes one tiny call to
 
 uvicorn listens on `127.0.0.1`, so only this computer can reach the app. `--host 0.0.0.0` makes it reachable by
 anyone on your network. With the `cli` backend every summary or literature search they trigger then runs on your
-own Claude subscription and uses up your limits. There are no accounts or rate limits yet. Any shared or public
-deployment needs the `api` backend, accounts (planned) and rate limits.
+own Claude subscription and uses up your limits. There are no rate limits yet. Any shared or public deployment
+needs the `api` backend, accounts and rate limits.
 
 ### Investigations: beyond the data
 
@@ -77,6 +79,16 @@ Searches run in a per-analysis queue: 3 at a time, up to 40 waiting. They surviv
 running and queued ones as interrupted, so they can be retried. Renaming a variable is display-only: the name stays in
 your browser and is never sent to the server or to Claude. `CAUSAL_OPENALEX=off` skips the OpenAlex lookups (the tests
 do this), and `CAUSAL_FAKE_DELAY` sets how long a fake search takes.
+
+### Accounts and guests
+
+You can use the app as a guest: your browser keeps a random id and your analyses belong to it, so they last as long
+as this browser keeps its data. Creating an account (email and password, stored as an scrypt hash) moves this
+browser's work to the account, so it survives across devices. Everyone sees only their own analyses; anything else
+answers 404. The first account created on a server also adopts analyses made before accounts existed.
+
+Signed-in users can ask for an email when an analysis finishes. If the email can't be sent, the analysis says why
+instead of failing silently. Deleting an analysis removes its investigations and files too; every delete asks first.
 
 ### How the web app runs an analysis
 
@@ -107,7 +119,7 @@ running when the server stops are marked as interrupted when it starts again.
 | Next study, powered on the **claimed** effect, never the observed one | `suggest.py` |
 | Explore: FCI main graph, PC and LiNGAM second views, subsampling stability, per-pair sanity checks; uncertain edges never drawn as arrows | `explore.py` |
 | Orchestration and API | `pipeline.py`, `app.py` |
-| Web app services: storage, background jobs, language-model adapter, influence graph and depth search, literature investigations and Reliability Score | `backend/services/` |
+| Web app services: storage, background jobs, language-model adapter, influence graph and depth search, literature investigations and Reliability Score, accounts and ownership, email | `backend/services/` |
 | Web app (React + Vite): analysis page, result tabs, influence graph, sidebar, light/dark theme. The report tabs use the original hand-written SVG charts and renderer; JSON and standalone-HTML export | `frontend/src/` |
 
 The shared result format is `backend/causality/schema.py`; the module contract is `CONTRACT.md`.

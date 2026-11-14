@@ -26,7 +26,10 @@ def _free_port() -> int:
 def base_url(tmp_path_factory):
     port = _free_port()
     env = {**os.environ, "CAUSAL_DATA_DIR": str(tmp_path_factory.mktemp("data")), "CAUSAL_LLM": "fake",
-           "CAUSAL_FAKE_DELAY": FAKE_SEARCH_SECONDS, "CAUSAL_OPENALEX": "off"}
+           "CAUSAL_FAKE_DELAY": FAKE_SEARCH_SECONDS, "CAUSAL_OPENALEX": "off",
+           # email "works" but every send fails locally (closed port): exercises the failure message, contacts no one
+           "SMTP_HOST": "127.0.0.1", "SMTP_PORT": str(_free_port())}
+    env.pop("RESEND_API_KEY", None)
     srv = subprocess.Popen([sys.executable, "-m", "uvicorn", "app:app", "--app-dir", "backend", "--port", str(port)],
                            cwd=ROOT, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     url = f"http://127.0.0.1:{port}"
@@ -55,6 +58,8 @@ def new_page(browser, width, scheme="light"):
     page.errors = []
     page.on("console", lambda m: m.type == "error" and page.errors.append(m.text))
     page.on("pageerror", lambda e: page.errors.append(str(e)))
+    # the app never uses native confirm/alert: one appearing is an error
+    page.on("dialog", lambda d: (page.errors.append(f"native {d.type}: {d.message}"), d.dismiss()))
     return page
 
 
@@ -67,6 +72,12 @@ def assert_layout(page, label):
     tops = page.evaluate("[...document.querySelectorAll('.topbar-left > *, .topbar-right > *')]"
                          ".filter(e => e.offsetParent).map(e => Math.round(e.getBoundingClientRect().top + e.getBoundingClientRect().height/2))")
     assert max(tops) - min(tops) <= 6, f"{label}: header items not on one row {tops}"
+    # nothing in the left group may run under the right group (overflow hidden would not show as page scroll)
+    gap = page.evaluate("""() => {
+        const right = document.querySelector('.topbar-right').getBoundingClientRect().left;
+        const kids = [...document.querySelectorAll('.topbar-left *')].filter(e => e.offsetParent && e.getClientRects().length);
+        return right - Math.max(...kids.map(e => e.getBoundingClientRect().right)); }""")
+    assert gap >= 0, f"{label}: header items overlap by {-gap}px"
 
 
 def run_lalonde(page, base_url):
@@ -79,3 +90,10 @@ def run_lalonde(page, base_url):
     return page.url.split("job=")[1]
 
 
+
+
+def confirm_dialog(page):
+    """The app's own confirmation dialog, once open."""
+    d = page.locator("dialog.confirm-dialog[open]")
+    d.wait_for()
+    return d

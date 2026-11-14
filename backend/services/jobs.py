@@ -18,7 +18,7 @@ from causality import data, pipeline
 from causality.data import InputError
 from causality.schema import Roles, to_jsonable
 
-from . import graph, llm, store
+from . import graph, llm, mailer, store
 
 STEP_LABELS = {
     "read": "Read the file",
@@ -111,17 +111,24 @@ def run(analysis_id: str) -> None:
             result, status = _pipeline(a, steps)
     except InputError as e:  # bad data, in plain words
         steps.finish(str(e))
-        store.update_analysis(analysis_id, status="error", error=str(e))
+        _finish(analysis_id, steps, status="error", error=str(e))
         return
     except Exception as e:  # noqa: BLE001
         traceback.print_exc()
         msg = f"Something went wrong during the analysis ({type(e).__name__}: {e}). Nothing was concluded."
         steps.finish(msg)
-        store.update_analysis(analysis_id, status="error", error=msg)
+        _finish(analysis_id, steps, status="error", error=msg)
         return
     steps.finish()
-    if not steps.deleted:
-        store.update_analysis(analysis_id, status=status, error=None, result=result)
+    _finish(analysis_id, steps, status=status, error=None, result=result)
+
+
+def _finish(analysis_id: str, steps: Steps, **fields) -> None:
+    """Write the outcome, unless the analysis was deleted while it ran (it must not come back)."""
+    if steps.deleted or not store.update_analysis(analysis_id, **fields):
+        return
+    if fields["status"] in ("done", "error"):  # not while it waits for the user's answer
+        mailer.notify(analysis_id)
 
 
 # --------------------------------------------------------------------------------------------- data modes

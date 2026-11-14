@@ -8,6 +8,7 @@ import Progress from "./components/Progress.jsx";
 import Results, { NeedsInput } from "./components/Results.jsx";
 import InvestigatePage from "./pages/InvestigatePage.jsx";
 import { go, useRoute } from "./router.js";
+import { GuestNudge, useAuth, useOnAuthChange } from "./auth.jsx";
 
 const POLL_MS = 800;
 const SIDE_KEY = "causal-audit:sidebar";
@@ -22,14 +23,16 @@ function useJob(jobId) {
     setJob(null);
     setError("");
     if (!jobId) return;
-    let stop = false, timer = null;
+    let stop = false, timer = null, finished = false, mailChecks = 0;
     const load = async () => {
       try {
         const j = await fetchJob(jobId);
         if (stop) return;
         setJob(j);
-        if (j.status === "running") timer = setTimeout(load, POLL_MS);
-        else datasetsChanged();
+        if (j.status === "running") { timer = setTimeout(load, POLL_MS); return; }
+        if (!finished) { finished = true; datasetsChanged(); }
+        // a requested email is sent just after the analysis finishes: keep checking briefly for its outcome
+        if (j.notify_email && !j.mail_status && j.status !== "needs_input" && mailChecks++ < 30) timer = setTimeout(load, 1000);
       } catch (e) {
         if (stop) return;
         if (e.status === 404) setError("This analysis is not on the server (it may have been deleted).");
@@ -57,6 +60,15 @@ function useSidebar() {
   return [open, set];
 }
 
+/** The outcome of the "analysis ready" email, when one was asked for. Failures are shown, never swallowed. */
+function MailStatus({ job }) {
+  const m = job.mail_status;
+  if (!job.notify_email) return null;
+  if (!m) return <p className="small muted mail-note" role="status">Emailing {job.notify_email}…</p>;
+  if (m.ok) return <p className="small muted mail-note" role="status">We emailed {m.to} that this analysis is {job.status === "error" ? "done (it failed)" : "ready"}.</p>;
+  return <div className="card banner-warn" role="alert">Couldn't send the email notification: {m.error}</div>;
+}
+
 export default function App() {
   const route = useRoute();
   const [health, setHealth] = useState(null);
@@ -66,6 +78,10 @@ export default function App() {
   const [sideOpen, setSideOpen] = useSidebar();
   const jobId = route.page === "analysis" ? route.jobId : null;
   const { job, error: jobError, reload } = useJob(jobId);
+  const { user, emailNotifications } = useAuth();
+  const [notify, setNotify] = useState(true);
+  // signing out hides the account's work (this browser's guest id doesn't own it): back to a blank page
+  useOnAuthChange((next) => { if (!next.user) reset(); });
   // after Run or an answer, bring the progress card into view (on a phone it is a screen below the form)
   const outputRef = useRef(null);
   const scrollToOutput = useRef(false);
@@ -86,7 +102,7 @@ export default function App() {
     setRunError("");
     setSubmitting(true);
     try {
-      const { job_id } = await startAnalysis(form);
+      const { job_id } = await startAnalysis({ ...form, notify: !!user && emailNotifications && notify });
       scrollToOutput.current = true;
       go(`#/?job=${job_id}`); // reload-safe, and the sidebar highlights it
       datasetsChanged();
@@ -137,13 +153,16 @@ export default function App() {
     body = (
       <>
         <Intake form={form} setForm={setForm} running={running} error={runError} onRun={run} onReset={reset}
-          llm={health ? !!health.llm : undefined} />
+          llm={health ? !!health.llm : undefined}
+          notify={user && emailNotifications ? { on: notify, set: setNotify, email: user.email } : null} />
         <div className="output-anchor" ref={outputRef} aria-hidden="true" />
         {jobError && <div className="card err" role="alert">{jobError} <a href="#/">Start a new analysis</a></div>}
         {job?.status === "error" && (
           <div className="card banner-error" role="alert"><b>The analysis failed.</b> {job.error}</div>
         )}
         {job?.status === "needs_input" && <NeedsInput key={job.updated} job={job} onAnswer={answer} busy={submitting} />}
+        {job && job.status !== "running" && <MailStatus job={job} />}
+        {result && <GuestNudge text="You're using guest mode, so this analysis is saved only in this browser." />}
         {job && job.mode !== "claim-only" && <InfluenceGraph result={result} running={job.status === "running"} jobId={job.id} />}
         <div>
           {result ? <Results result={result} job={job} /> : job?.status === "running" ? <Progress job={job} title="Running the analysis" /> : null}
@@ -159,7 +178,9 @@ export default function App() {
         {sideOpen && (
           <>
             <div className="side-backdrop" onClick={() => setSideOpen(false)} aria-hidden="true" />
-            <Sidebar currentJobId={route.page === "investigate" ? route.jobId : jobId} route={route} onClose={() => setSideOpen(false)} onNew={() => { reset(); if (!wide()) setSideOpen(false); }} />
+            <Sidebar currentJobId={route.page === "investigate" ? route.jobId : jobId} route={route} onClose={() => setSideOpen(false)}
+              onNew={() => { reset(); if (!wide()) setSideOpen(false); }}
+              onDeleted={(id) => { if (id === jobId || (route.page === "investigate" && id === route.jobId)) reset(); }} />
           </>
         )}
         <div className="shell-content">

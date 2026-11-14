@@ -54,13 +54,14 @@ export function cleanRoles(roles) {
   return out;
 }
 
-export function startAnalysis({ file, claim, design = "", roles = {}, online = false }) {
+export function startAnalysis({ file, claim, design = "", roles = {}, online = false, notify = false }) {
   const fd = new FormData();
   if (file) fd.append("file", file);
   fd.append("claim", (claim || "").trim());
   fd.append("design", design || "");
   fd.append("roles", JSON.stringify(cleanRoles(roles)));
   fd.append("online_literature", online ? "true" : "false");
+  fd.append("notify", notify ? "1" : "0");
   return request("/api/analyze", { method: "POST", body: fd }); // { job_id, mode }
 }
 
@@ -85,3 +86,10 @@ export const investigationsChanged = (jobId) => {
   window.dispatchEvent(new CustomEvent(INVESTIGATIONS_EVENT, { detail: { jobId } }));
   datasetsChanged();
 };
+
+// ---- deletion and accounts
+export const deleteAnalysis = (id) => sendJSON(`/api/jobs/${encodeURIComponent(id)}`, "DELETE");
+export const fetchMe = () => request("/api/auth/me");
+export const signUp = (email, password) => sendJSON("/api/auth/signup", "POST", { email, password });
+export const logIn = (email, password) => sendJSON("/api/auth/login", "POST", { email, password });
+export const logOut = () => sendJSON("/api/auth/logout", "POST");

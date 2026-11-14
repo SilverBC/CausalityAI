@@ -13,16 +13,16 @@ import warnings
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from causality import data, sim
 from causality.data import InputError
-from services import graph, investigate, jobs, llm, store
+from services import auth, graph, investigate, jobs, llm, mailer, store
 from services.config import FRONTEND_DIST, MAX_UPLOAD_BYTES, SAMPLES_DIR
-from services.ownership import owned_analysis, owner_of
+from services.auth import owned_analysis, owner_of, require_owner
 
 warnings.filterwarnings("ignore")
 
@@ -38,7 +38,7 @@ if _interrupted:
 def health(probe: bool = False):
     """Language-model availability and its last error. probe=true makes one tiny call to check it really works."""
     out = {"ok": True, "llm": llm.available(), "llm_backend": llm.backend(), "llm_label": llm.describe(),
-           "llm_last_error": llm.last_error()}
+           "llm_last_error": llm.last_error(), "email": mailer.available()}
     if probe and out["llm"]:
         reply = llm.run("Reply with the single word: ok", timeout=60, kind="probe")
         out["probe_ok"] = bool(reply)
@@ -167,6 +167,7 @@ async def analyze(request: Request, file: Optional[UploadFile] = File(None), cla
                   design: str = Form(""), roles: str = Form(""), confirm: str = Form(""),
                   online_literature: str = Form("false"), notify: str = Form("0")):
     """Start an analysis in the background. Mode: audit (claim + data), explore (data), claim-only (claim)."""
+    owner = require_owner(request)
     content, filename = await _read_upload(file)
     claim = (claim or "").strip()
     if not content and not claim:
@@ -178,9 +179,12 @@ async def analyze(request: Request, file: Optional[UploadFile] = File(None), cla
         raise HTTPException(503, "A claim without data needs Claude for the literature search, and no language model "
                                  "is configured. Upload a dataset to analyse the claim from data.")
     params = {"design": design or None, "roles": _json_field(roles, "roles"), "confirm": _json_field(confirm, "confirm"),
-              "online_literature": online_literature.lower() == "true", "notify": notify in ("1", "true", "on")}
-    a = store.create_analysis(owner=owner_of(request), mode=mode, title=jobs.title_for(filename, claim),
-                              filename=filename, claim=claim, params=params, link_base=str(request.base_url))
+              "online_literature": online_literature.lower() == "true"}
+    user = auth.current_user(request)  # emails only go to signed-in users who ask for one
+    wants_mail = user is not None and notify in ("1", "true", "on")
+    a = store.create_analysis(owner=owner, mode=mode, title=jobs.title_for(filename, claim), filename=filename,
+                              claim=claim, params=params, notify_email=user["email"] if wants_mail else None,
+                              link_base=str(request.base_url))
     if content:
         store.save_upload(a["id"], content)
     jobs.start(a["id"])
@@ -189,7 +193,8 @@ async def analyze(request: Request, file: Optional[UploadFile] = File(None), cla
 
 def _public(a: dict) -> dict:
     out = {k: a[k] for k in ("id", "mode", "title", "filename", "claim", "status", "error", "steps", "params",
-                             "created", "updated")}
+                             "mail_status", "created", "updated")}
+    out["notify_email"] = a.get("notify_email")
     out["elapsed"] = round((time.time() if a["status"] == "running" else a["updated"]) - a["created"], 1)
     if a["status"] in ("done", "needs_input"):
         out["result"] = a["result"]
@@ -205,8 +210,11 @@ def job_status(job_id: str, request: Request):
 @app.get("/api/datasets")
 def list_datasets(request: Request):
     """The caller's analyses, newest activity first, with what the sidebar shows."""
+    who = owner_of(request)
+    if not who:
+        return []
     out = []
-    for a in store.list_analyses(owner_of(request)):
+    for a in store.list_analyses(who):
         res = a["result"] or {}
         rep = res.get("report") or {}
         out.append({"id": a["id"], "title": a["title"], "mode": a["mode"], "status": a["status"], "error": a["error"],
@@ -264,6 +272,69 @@ def job_influence(job_id: str, depth: int, request: Request):
             _depth_cache.clear()
         _depth_cache[key] = graph.influence_at_depth(fr, res["base_graph"], depth)
     return _depth_cache[key]
+
+
+@app.delete("/api/jobs/{job_id}")
+def delete_analysis(job_id: str, request: Request):
+    """Delete an analysis with its investigations and files. A running analysis can't be deleted."""
+    a = owned_analysis(request, job_id)
+    if a["status"] == "running":
+        raise HTTPException(409, "This analysis is still running. Wait until it finishes, then delete it.")
+    store.delete_analysis(job_id)
+    for k in [k for k in _depth_cache if k[0] == job_id]:
+        _depth_cache.pop(k, None)
+    return {"ok": True}
+
+
+# --------------------------------------------------------------------------------------------- accounts
+class Credentials(BaseModel):
+    email: str
+    password: str
+
+
+def _me(request: Request, user: Optional[dict] = None) -> dict:
+    return {"user": user or auth.current_user(request), "email_notifications": mailer.available()}
+
+
+def _signed_in(request: Request, response: Response, user: dict) -> dict:
+    token = auth.new_session(user["id"])
+    response.set_cookie(auth.COOKIE, token, max_age=auth.SESSION_DAYS * 86400, httponly=True, samesite="lax",
+                        secure=request.url.scheme == "https")
+    g = auth.guest_id(request)
+    moved = store.move_owner(f"guest:{g}", f"user:{user['id']}") if g else 0  # this browser's guest work
+    return {**_me(request, user), "moved": moved}
+
+
+@app.get("/api/auth/me")
+def me(request: Request):
+    return _me(request)
+
+
+@app.post("/api/auth/signup")
+def signup(creds: Credentials, request: Request, response: Response):
+    try:
+        user = auth.signup(creds.email, creds.password)
+    except auth.AuthError as e:
+        raise HTTPException(400, str(e))
+    if auth.user_count() == 1:  # migration only: the first account adopts analyses made before accounts existed
+        store.adopt_unowned(f"user:{user['id']}")
+    return _signed_in(request, response, user)
+
+
+@app.post("/api/auth/login")
+def login(creds: Credentials, request: Request, response: Response):
+    try:
+        user = auth.login(creds.email, creds.password)
+    except auth.AuthError as e:
+        raise HTTPException(401, str(e))
+    return _signed_in(request, response, user)
+
+
+@app.post("/api/auth/logout")
+def logout(request: Request, response: Response):
+    auth.end_session(request.cookies.get(auth.COOKIE))
+    response.delete_cookie(auth.COOKIE, httponly=True, samesite="lax")
+    return {"user": None}
 
 
 # --------------------------------------------------------------------------------------------- investigations

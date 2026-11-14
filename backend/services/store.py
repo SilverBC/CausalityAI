@@ -1,6 +1,6 @@
 """Persistence: one SQLite file (standard library, no ORM) plus per-analysis blobs.
 
-    data/causal.db              analyses, investigations (later prompts add users, sessions, chats, messages)
+    data/causal.db              analyses, investigations, users, sessions (stage 05 adds chats and messages)
     data/blobs/<id>.upload      the uploaded file, byte for byte (a re-run reads it again)
     data/blobs/<id>.parquet     the prepared numeric frame (the depth search reloads it on demand)
 
@@ -41,9 +41,19 @@ TABLES = {
             queued_at REAL NOT NULL, started_at REAL, finished_at REAL);
         CREATE INDEX IF NOT EXISTS investigations_by_analysis ON investigations(analysis_id, queued_at);
     """,
+    "users": """
+        CREATE TABLE IF NOT EXISTS users (
+            id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, pw_hash TEXT NOT NULL, created REAL NOT NULL);
+    """,
+    "sessions": """
+        CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, user_id TEXT NOT NULL, created REAL NOT NULL);
+        CREATE INDEX IF NOT EXISTS sessions_by_user ON sessions(user_id);
+    """,
 }
-MIGRATIONS: list[tuple[str, str, str]] = []   # (table, column, declaration), e.g. ("analyses", "mail_status", "TEXT")
-JSON_COLUMNS = {"steps", "result", "params"}
+MIGRATIONS: list[tuple[str, str, str]] = [   # (table, column, declaration)
+    ("analyses", "mail_status", "TEXT"),        # stage 04: outcome of the "analysis ready" email
+]
+JSON_COLUMNS = {"steps", "result", "params", "mail_status"}
 
 
 def db_path() -> Path:
@@ -97,6 +107,7 @@ def _row(r: sqlite3.Row) -> dict:
     out["steps"] = _loads(out.get("steps"), [])
     out["result"] = _loads(out.get("result"), None)
     out["params"] = _loads(out.get("params"), {})
+    out["mail_status"] = _loads(out.get("mail_status"), None)
     out["filename"] = out.get("filename") or ""
     out["claim"] = out.get("claim") or ""
     return out
@@ -132,6 +143,18 @@ def update_analysis(analysis_id: str, **fields) -> bool:
     vals = [json.dumps(v) if k in JSON_COLUMNS and v is not None else v for k, v in fields.items()]
     with _lock, connect() as con:
         return con.execute(f"UPDATE analyses SET {cols} WHERE id=?", (*vals, analysis_id)).rowcount > 0
+
+
+def move_owner(old: str, new: str) -> int:
+    """Signing up or in moves a guest's analyses (and so their investigations) to the account."""
+    with _lock, connect() as con:
+        return con.execute("UPDATE analyses SET owner=? WHERE owner=?", (new, old)).rowcount
+
+
+def adopt_unowned(new: str) -> int:
+    """Migration only: analyses made before accounts existed (no owner, or the stage-01 placeholder 'anon')."""
+    with _lock, connect() as con:
+        return con.execute("UPDATE analyses SET owner=? WHERE owner IS NULL OR owner IN ('', 'anon')", (new,)).rowcount
 
 
 def delete_analysis(analysis_id: str) -> None:
