@@ -9,21 +9,19 @@ from __future__ import annotations
 
 import json
 import time
-import traceback
 import warnings
 from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
+from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from causality import data, pipeline, sim
+from causality import data, sim
 from causality.data import InputError
-from causality.schema import to_jsonable
 from services import graph, jobs, llm, store
-from services.config import FRONTEND_DIST, LEGACY_FRONTEND, MAX_UPLOAD_BYTES, SAMPLES_DIR
+from services.config import FRONTEND_DIST, MAX_UPLOAD_BYTES, SAMPLES_DIR
 from services.ownership import owned_analysis, owner_of
 
 warnings.filterwarnings("ignore")
@@ -121,11 +119,6 @@ def sample_file(name: str):
     raise HTTPException(404, "Unknown sample.")
 
 
-@app.get("/api/sample/{name}")  # used by the original static page
-def sample_legacy(name: str):
-    return sample_file(name)
-
-
 # --------------------------------------------------------------------------------------------- uploads
 async def _read_upload(file: Optional[UploadFile]) -> tuple[bytes, str]:
     if file is None:
@@ -209,6 +202,20 @@ def job_status(job_id: str, request: Request):
     return _public(owned_analysis(request, job_id))
 
 
+@app.get("/api/datasets")
+def list_datasets(request: Request):
+    """The caller's analyses, newest activity first, with what the sidebar shows."""
+    out = []
+    for a in store.list_analyses(owner_of(request)):
+        res = a["result"] or {}
+        rep = res.get("report") or {}
+        out.append({"id": a["id"], "title": a["title"], "mode": a["mode"], "status": a["status"], "error": a["error"],
+                    "filename": a["filename"], "claim": a["claim"], "created": a["created"], "updated": a["updated"],
+                    "grade": (rep.get("design") or {}).get("grade"), "verdict": (rep.get("verdict") or {}).get("label"),
+                    "has_graph": bool((res.get("influence") or {}).get("nodes"))})
+    return out
+
+
 class Answers(BaseModel):
     confirm: dict = {}
     design: Optional[str] = None
@@ -256,26 +263,16 @@ def job_influence(job_id: str, depth: int, request: Request):
     return _depth_cache[key]
 
 
-# --------------------------------------------------------------------------------------------- original page
-@app.post("/api/analyze-sync")
-async def analyze_sync(file: UploadFile = File(...), claim: str = Form(""), design: str = Form(""),
-                       roles: str = Form(""), confirm: str = Form(""), online_literature: str = Form("false")):
-    """The original one-request analysis, kept for the static page until the React app replaces it."""
-    df = _load(*(await _read_upload(file)))
-    try:
-        report = pipeline.run(df, claim_text=claim, design_decl=design or None, roles=_json_field(roles, "roles"),
-                              confirm=_json_field(confirm, "confirm"),
-                              online_literature=online_literature.lower() == "true")
-        return {"report": to_jsonable(report)}
-    except InputError as e:
-        return JSONResponse({"error": str(e)}, status_code=400)
-    except Exception as e:  # noqa: BLE001
-        traceback.print_exc()
-        return JSONResponse({"error": f"Something went wrong during the analysis ({type(e).__name__}: {e}). "
-                                      "Nothing was concluded from the data."}, status_code=500)
-
-
 # --------------------------------------------------------------------------------------------- page
-_static = FRONTEND_DIST if FRONTEND_DIST.is_dir() else LEGACY_FRONTEND
-if _static.is_dir():
-    app.mount("/", StaticFiles(directory=str(_static), html=True), name="static")
+if FRONTEND_DIST.is_dir():
+    app.mount("/", StaticFiles(directory=str(FRONTEND_DIST), html=True), name="frontend")
+else:
+    @app.get("/", response_class=HTMLResponse)
+    def frontend_not_built():
+        return ("<!doctype html><meta charset='utf-8'><title>Causal Audit</title>"
+                "<body style='font:16px/1.5 system-ui,sans-serif;max-width:640px;margin:60px auto;padding:0 16px'>"
+                "<h2>The Causal Audit API is running, but the web app is not built yet.</h2>"
+                "<p>Build it once with <code>cd frontend &amp;&amp; npm install &amp;&amp; npm run build</code>, then reload "
+                "this page. While developing, run <code>npm run dev</code> in <code>frontend/</code> and open "
+                "<a href='http://localhost:5173'>http://localhost:5173</a>.</p>"
+                "<p>The API itself works: try <a href='/api/health'>/api/health</a>.</p></body>")

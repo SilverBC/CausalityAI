@@ -1,11 +1,8 @@
-/* CausalityAI page logic.
- *
- * Two parts:
- *   1. defineRender(Charts)  -- pure: report JSON -> HTML string. No fetch, no globals.
- *      The HTML export inlines defineRender.toString() and defineCharts.toString(), so the
- *      downloaded file renders exactly the same results offline.
- *   2. the app (form, upload, fetch, needs_input answers, sample hook, export buttons).
- */
+/* eslint-disable */
+/* Report -> HTML builders from the original CausalityAI page. Pure (no DOM, no fetch), every value escaped, and they
+   encode the rule "assumed is never shown as a pass". The React tabs place these pieces; the standalone HTML export
+   inlines this exact function with Function#toString, so a downloaded report renders the same offline. */
+import Charts, { defineCharts } from "./charts.js";
 
 function defineRender(Charts) {
   "use strict";
@@ -426,182 +423,15 @@ function defineRender(Charts) {
     return '<div class="report">' + h + "</div>";
   }
 
-  return { render: render, esc: esc, fmt: fmt, pill: pill };
+  return {
+    render: render, esc: esc, fmt: fmt, pill: pill,
+    // the individual pieces, for pages that lay the report out in tabs
+    errorsBanner: errorsBanner, verdictBand: verdictBand, subVerdicts: subVerdicts, assumedPanel: assumedPanel,
+    claimCard: claimCard, designCard: designCard, estimateCard: estimateCard, dagCard: dagCard, dataCard: dataCard,
+    sectionCard: sectionCard, exploreIntro: exploreIntro, chartsHtml: chartsHtml, list: list
+  };
 }
 
-/* ======================================================================== app */
-(function () {
-  if (typeof document === "undefined" || !document.getElementById("analyze-form")) return;
-  var R = defineRender(window.CausalCharts);
-  window.CausalRender = R;
-
-  var $ = function (id) { return document.getElementById(id); };
-  var form = $("analyze-form"), fileInput = $("file"), drop = $("drop"), fileName = $("file-name");
-  var results = $("results"), banner = $("banner"), btn = $("analyze-btn"), exportBar = $("export-bar");
-  var ROLE_SELECTS = ["treatment", "outcome", "unit", "time", "instrument", "running", "cluster", "strata", "saturation"];
-
-  var state = { file: null, columns: [], confirm: {}, design: null, report: null };
-  window.CausalApp = state;   // dev: inspect state; CausalApp.show(report) renders any report object
-
-  function showBanner(msg, kind) {
-    if (!msg) { banner.hidden = true; banner.innerHTML = ""; return; }
-    banner.hidden = false;
-    banner.className = "banner " + (kind === "info" ? "banner-info" : "banner-error");
-    banner.innerHTML = R.esc(msg);
-  }
-
-  function setFile(f) {
-    state.file = f || null;
-    state.confirm = {};
-    state.design = null;
-    fileName.textContent = f ? f.name + " (" + Math.max(1, Math.round(f.size / 1024)) + " KB)" : "No file chosen";
-    drop.classList.toggle("has-file", !!f);
-    if (f) loadColumns(f);
-  }
-
-  function fillSelects(cols) {
-    ROLE_SELECTS.forEach(function (role) {
-      var sel = $("role-" + role);
-      if (!sel) return;
-      var prev = sel.value;
-      sel.innerHTML = '<option value="">— none / let us guess —</option>' + cols.map(function (c) {
-        return '<option value="' + R.esc(c.name) + '">' + R.esc(c.name) + (c.kind ? " · " + R.esc(c.kind) : "") + "</option>";
-      }).join("");
-      if (prev && cols.some(function (c) { return c.name === prev; })) sel.value = prev;
-    });
-    var box = $("post-list");
-    box.innerHTML = cols.length ? cols.map(function (c, i) {
-      return '<label class="check"><input type="checkbox" name="post_treatment" value="' + R.esc(c.name) + '" id="pt-' + i + '"> ' + R.esc(c.name) + "</label>";
-    }).join("") : '<p class="muted small">Upload a file to list its columns.</p>';
-  }
-
-  function loadColumns(f) {
-    var fd = new FormData();
-    fd.append("file", f);
-    $("columns-info").textContent = "Reading columns…";
-    fetch("/api/columns", { method: "POST", body: fd }).then(readJson).then(function (res) {
-      if (!res.ok) throw new Error(res.body && (res.body.error || res.body.detail) || "Could not read the columns of this file.");
-      state.columns = res.body.columns || [];
-      fillSelects(state.columns);
-      $("columns-info").textContent = state.columns.length + " columns, " + (res.body.n_rows != null ? res.body.n_rows + " rows" : "rows unknown") + ".";
-    }).catch(function (err) {
-      state.columns = [];
-      fillSelects([]);
-      $("columns-info").textContent = "We could not list the columns (" + plain(err) + "). You can still analyze; we will guess the roles.";
-    });
-  }
-
-  function readJson(resp) {
-    return resp.text().then(function (t) {
-      var body = null;
-      try { body = t ? JSON.parse(t) : null; } catch (e) { body = { error: "The server sent something we could not read (status " + resp.status + ")." }; }
-      return { ok: resp.ok, status: resp.status, body: body };
-    });
-  }
-  function plain(err) {
-    var m = (err && err.message ? err.message : String(err)).replace(/\.+$/, "");
-    if (/Failed to fetch|NetworkError|Load failed/i.test(m)) return "the server could not be reached";
-    return m;
-  }
-
-  function collectRoles() {
-    var roles = {};
-    ROLE_SELECTS.forEach(function (role) {
-      var sel = $("role-" + role);
-      if (sel && sel.value) roles[role] = sel.value;
-    });
-    var cut = $("role-cutoff").value.trim();
-    if (cut !== "" && isFinite(Number(cut))) roles.cutoff = Number(cut);
-    var post = Array.prototype.slice.call(document.querySelectorAll('input[name="post_treatment"]:checked')).map(function (x) { return x.value; });
-    if (post.length) roles.post_treatment = post;
-    roles.randomized = $("randomized").checked;
-    return roles;
-  }
-
-  function analyze() {
-    if (!state.file) { showBanner("Please choose a data file first (CSV, TSV, Excel or JSON)."); return; }
-    showBanner("");
-    var fd = new FormData();
-    fd.append("file", state.file);
-    fd.append("claim", $("claim").value.trim());
-    var design = state.design != null ? state.design : $("design").value;
-    fd.append("design", design || "");
-    fd.append("roles", JSON.stringify(collectRoles()));
-    fd.append("confirm", JSON.stringify(state.confirm));
-    fd.append("online_literature", $("online").checked ? "true" : "false");
-    setBusy(true);
-    fetch("/api/analyze-sync", { method: "POST", body: fd }).then(readJson).then(function (res) {
-      if (!res.ok || !res.body || !res.body.report) {
-        throw new Error((res.body && res.body.error) || "The analysis failed (status " + res.status + ").");
-      }
-      show(res.body.report);
-    }).catch(function (err) {
-      showBanner("We could not finish the analysis: " + plain(err) + ".");
-    }).then(function () { setBusy(false); });
-  }
-
-  function setBusy(on) {
-    btn.disabled = on;
-    btn.classList.toggle("busy", on);
-    btn.querySelector(".btn-text").textContent = on ? "Analyzing…" : "Analyze";
-    form.setAttribute("aria-busy", on ? "true" : "false");
-  }
-
-  function show(report) {
-    state.report = report;
-    try {
-      results.innerHTML = R.render(report, { interactive: true });
-    } catch (err) {
-      results.innerHTML = "";
-      showBanner("The results arrived but could not be shown: " + plain(err));
-      if (window.console) console.error(err);
-      return;
-    }
-    exportBar.hidden = false;
-    var ni = $("ni-submit");
-    if (ni) ni.addEventListener("click", answerQuestions);
-    results.scrollIntoView({ behavior: "smooth", block: "start" });
-  }
-  state.show = show;
-
-  function answerQuestions() {
-    var sels = results.querySelectorAll("select[data-ni]");
-    Array.prototype.forEach.call(sels, function (s) {
-      var kind = s.getAttribute("data-kind"), role = s.getAttribute("data-role");
-      if (kind === "choose_design") { state.design = s.value; $("design").value = s.value; }
-      else if (role) state.confirm[role] = s.value;
-    });
-    analyze();
-  }
-
-  // --- wiring
-  fileInput.addEventListener("change", function () { setFile(fileInput.files && fileInput.files[0]); });
-  ["dragenter", "dragover"].forEach(function (ev) {
-    drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add("drag"); });
-  });
-  ["dragleave", "drop"].forEach(function (ev) {
-    drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove("drag"); });
-  });
-  drop.addEventListener("drop", function (e) {
-    var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
-    if (f) setFile(f);
-  });
-  drop.addEventListener("keydown", function (e) {
-    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fileInput.click(); }
-  });
-  $("design").addEventListener("change", function () { state.design = null; });
-  form.addEventListener("submit", function (e) { e.preventDefault(); analyze(); });
-  $("dl-json").addEventListener("click", function () { if (state.report) window.CausalExport.downloadJSON(state.report); });
-  $("dl-html").addEventListener("click", function () {
-    if (state.report) window.CausalExport.downloadHTML(state.report).catch(function (err) { showBanner("Export failed: " + plain(err)); });
-  });
-
-  // --- dev hook: ?sample=audit | ?sample=explore renders a bundled sample without the API
-  var m = /[?&]sample=(audit|explore)\b/.exec(location.search);
-  if (m) {
-    var url = m[1] === "audit" ? "sample_report.json" : "sample_explore.json";
-    fetch(url).then(function (r) { if (!r.ok) throw new Error("status " + r.status); return r.json(); })
-      .then(function (rep) { showBanner("Showing the bundled sample (" + m[1] + "), not a live analysis.", "info"); show(rep); })
-      .catch(function (err) { showBanner("Could not load the sample (" + plain(err) + "). Serve this folder over http, e.g. python -m http.server."); });
-  }
-})();
+const R = defineRender(Charts);
+export default R;
+export { defineRender, defineCharts };

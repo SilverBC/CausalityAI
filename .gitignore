@@ -13,3 +13,4 @@ prompt-log/
 # frontend build (prompt 02)
 node_modules/
 frontend/dist/
+frontend/e2e/screens/

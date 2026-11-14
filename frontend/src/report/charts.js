@@ -1,3 +1,4 @@
+/* eslint-disable */
 /* CausalityAI charts: hand-written SVG, no dependencies.
  *
  * Everything lives inside defineCharts() so the HTML export can inline this exact code
@@ -585,4 +586,6 @@ function defineCharts() {
   return { render: render, bar: bar, hist: hist, scatter: scatter, line: lineChart, forest: forest, dag: dag, fmt: fmt, esc: esc };
 }
 
-if (typeof window !== "undefined") window.CausalCharts = defineCharts();
+export { defineCharts };
+const Charts = defineCharts();
+export default Charts;

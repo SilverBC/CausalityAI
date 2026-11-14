@@ -7,8 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent.parent
 ENV_FILE = ROOT / ".env"
 SAMPLES_DIR = ROOT / "samples"
-LEGACY_FRONTEND = ROOT / "frontend"          # the static page, until the React app replaces it
-FRONTEND_DIST = ROOT / "frontend" / "dist"   # the React build (prompt 02)
+FRONTEND_DIST = ROOT / "frontend" / "dist"   # the built React app (npm run build)
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 
 

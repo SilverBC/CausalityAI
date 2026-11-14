@@ -16,19 +16,28 @@ Python 3.12 is recommended (some scientific packages have no wheels for newer ve
 ```bash
 python3.12 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
+(cd frontend && npm install && npm run build)       # Node 18+; builds the web app into frontend/dist
 python -m uvicorn app:app --app-dir backend --port 8000
 ```
 
-Open http://localhost:8000. To try it without your own data, use the samples: `GET /api/samples` lists them
-(three real datasets with known benchmarks, plus simulations with a known truth), and
-`GET /api/samples/<id>` downloads one (`lalonde_experimental`, `lalonde_observational`, `card_krueger`, `rct`,
-`observational`, `did`, `iv`, `rd`, `dose`, `chain`, …).
+Open http://localhost:8000. While working on the web app, run `npm run dev` in `frontend/` as well and open
+http://localhost:5173: it reloads on every change and forwards `/api` to the server on port 8000. To try it
+without your own data, click a sample on the page (three real datasets with known benchmarks, plus simulations
+with a known truth); shift-click loads the data without its claim.
 
 Tests (from `backend/`). They use a throwaway data folder and the fake language model, so they touch neither
 your data nor your Claude quota:
 
 ```bash
 python -m pytest tests -q
+```
+
+Browser tests (from the project root, after `npm run build`). They drive your installed Chrome through Playwright and
+save screenshots to `frontend/e2e/screens/`:
+
+```bash
+pip install -r requirements-dev.txt
+python -m pytest frontend/e2e -q
 ```
 
 ### Configuration
@@ -85,7 +94,7 @@ running when the server stops are marked as interrupted when it starts again.
 | Explore: FCI main graph, PC and LiNGAM second views, subsampling stability, per-pair sanity checks; uncertain edges never drawn as arrows | `explore.py` |
 | Orchestration and API | `pipeline.py`, `app.py` |
 | Web app services: storage, background jobs, language-model adapter, influence graph and depth search | `backend/services/` |
-| Page with hand-written SVG charts, JSON and standalone-HTML export | `frontend/` |
+| Web app (React + Vite): analysis page, result tabs, influence graph, sidebar, light/dark theme. The report tabs use the original hand-written SVG charts and renderer; JSON and standalone-HTML export | `frontend/src/` |
 
 The shared result format is `backend/causality/schema.py`; the module contract is `CONTRACT.md`.
 Known-truth simulations are in `backend/causality/sim.py`, and `tests/test_acceptance.py` runs
