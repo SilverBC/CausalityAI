@@ -11,23 +11,59 @@ interference between units, outcomes missing for reasons tied to the outcome —
 
 ## Run
 
-```bash
-pip install -r requirements.txt
-```
+Python 3.12 is recommended (some scientific packages have no wheels for newer versions yet).
 
 ```bash
+python3.12 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
 python -m uvicorn app:app --app-dir backend --port 8000
 ```
 
-Open http://localhost:8000. To try it without your own data, download a simulated dataset with a
-known truth from `http://localhost:8000/api/sample/<name>` (`rct`, `observational`, `did`, `iv`,
-`rd`, `dose`, `cluster_saturation`, `chain`, …).
+Open http://localhost:8000. To try it without your own data, use the samples: `GET /api/samples` lists them
+(three real datasets with known benchmarks, plus simulations with a known truth), and
+`GET /api/samples/<id>` downloads one (`lalonde_experimental`, `lalonde_observational`, `card_krueger`, `rct`,
+`observational`, `did`, `iv`, `rd`, `dose`, `chain`, …).
 
-Tests (from `backend/`):
+Tests (from `backend/`). They use a throwaway data folder and the fake language model, so they touch neither
+your data nor your Claude quota:
 
 ```bash
 python -m pytest tests -q
 ```
+
+### Configuration
+
+Settings come from environment variables or a `.env` file in the project root (gitignored; never commit it).
+
+| Variable | Default | What it does |
+|---|---|---|
+| `CAUSAL_LLM` | `cli` if Claude Code is found, else `api` if `ANTHROPIC_API_KEY` is set, else `off` | Which language model backend: `cli`, `api`, `fake` (tests) or `off` |
+| `CLAUDE_BIN` | found on `PATH`, `~/.local/bin` or the VS Code / Cursor extension | Path to the Claude Code binary for `cli` |
+| `CAUSAL_CLAUDE_MODEL` | Claude Code's default | Model for `cli` |
+| `ANTHROPIC_API_KEY` | none | Key for `api` (or sign in with `ant auth login`) |
+| `CAUSAL_API_MODEL` | `claude-opus-5-5` | Model for `api` |
+| `CAUSAL_DATA_DIR` | `data/` | Where the database (`causal.db`) and per-analysis files (`blobs/`) live |
+
+The analysis itself never uses a language model. Claude only writes the executive summary (with a plain template
+when it is unavailable) and handles claim-only mode (a claim with no data), which needs it. `GET /api/health` shows
+which backend is active and its last error; `?probe=true` makes one tiny call to check that it works.
+
+### Local only by default
+
+uvicorn listens on `127.0.0.1`, so only this computer can reach the app. `--host 0.0.0.0` makes it reachable by
+anyone on your network. With the `cli` backend every summary or literature search they trigger then runs on your
+own Claude subscription and uses up your limits. There are no accounts or rate limits yet. Any shared or public
+deployment needs the `api` backend, accounts (planned) and rate limits.
+
+### How the web app runs an analysis
+
+`POST /api/analyze` stores the upload and returns `{job_id, mode}` at once. The analysis runs in a background thread
+and `GET /api/jobs/<id>` reports its live steps and, at the end, the result. If the analysis needs an answer
+first (which column the claim means, or which design), its status is `needs_input` and
+`POST /api/jobs/<id>/answer` re-runs it with the answers. `GET /api/jobs/<id>/influence?depth=N` returns the
+weighted causal graph at a search depth (see `services/graph.py`). Analyses are SQLite rows of plain JSON plus
+files under `data/blobs/`. Nothing is pickled, so they survive restarts and code changes. Analyses still
+running when the server stops are marked as interrupted when it starts again.
 
 ## What it does
 
@@ -48,6 +84,7 @@ python -m pytest tests -q
 | Next study, powered on the **claimed** effect, never the observed one | `suggest.py` |
 | Explore: FCI main graph, PC and LiNGAM second views, subsampling stability, per-pair sanity checks; uncertain edges never drawn as arrows | `explore.py` |
 | Orchestration and API | `pipeline.py`, `app.py` |
+| Web app services: storage, background jobs, language-model adapter, influence graph and depth search | `backend/services/` |
 | Page with hand-written SVG charts, JSON and standalone-HTML export | `frontend/` |
 
 The shared result format is `backend/causality/schema.py`; the module contract is `CONTRACT.md`.

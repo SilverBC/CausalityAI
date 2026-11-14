@@ -480,7 +480,7 @@ function defineRender(Charts) {
     fd.append("file", f);
     $("columns-info").textContent = "Reading columns…";
     fetch("/api/columns", { method: "POST", body: fd }).then(readJson).then(function (res) {
-      if (!res.ok) throw new Error(res.body && res.body.error || "Could not read the columns of this file.");
+      if (!res.ok) throw new Error(res.body && (res.body.error || res.body.detail) || "Could not read the columns of this file.");
       state.columns = res.body.columns || [];
       fillSelects(state.columns);
       $("columns-info").textContent = state.columns.length + " columns, " + (res.body.n_rows != null ? res.body.n_rows + " rows" : "rows unknown") + ".";
@@ -530,7 +530,7 @@ function defineRender(Charts) {
     fd.append("confirm", JSON.stringify(state.confirm));
     fd.append("online_literature", $("online").checked ? "true" : "false");
     setBusy(true);
-    fetch("/api/analyze", { method: "POST", body: fd }).then(readJson).then(function (res) {
+    fetch("/api/analyze-sync", { method: "POST", body: fd }).then(readJson).then(function (res) {
       if (!res.ok || !res.body || !res.body.report) {
         throw new Error((res.body && res.body.error) || "The analysis failed (status " + res.status + ").");
       }

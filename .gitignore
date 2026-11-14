@@ -5,3 +5,11 @@ __pycache__/
 venv/
 *.egg-info/
 .DS_Store
+rebuild-plan/
+# runtime data and secrets
+data/
+.env
+prompt-log/
+# frontend build (prompt 02)
+node_modules/
+frontend/dist/
