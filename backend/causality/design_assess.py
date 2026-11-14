@@ -14,7 +14,18 @@ assess(prep, design, claim) -> (assumptions, sections)
                                     the log-density jump. A binomial count test in a narrow
                                     symmetric window is reported alongside in metrics.
             design_covariate_jumps  local linear discontinuity in each covariate, Bonferroni.
+      did : design_placebo_time     placebo in time: pre-treatment data only, adoption moved k
+                                    periods earlier, two-way fixed-effects DiD (should be zero).
+            design_event_study      only when the treatment is a PULSE (on for one period / a
+                                    short run, then off): finance-style event-study tests
+                                    (Boehmer-Musumeci-Poulsen 1991, Corrado 1989 / Corrado-Zivney
+                                    1992). Informational, never graded.
+      iv  : design_endogeneity      Durbin-Wu-Hausman (control-function) test. Informational.
+      any design with a time role:
+            design_functional_form  Ramsey RESET on the linear two-way fixed-effects model.
+                                    A diagnostic of that comparison model only; never graded.
     Untestable assumptions are always ASSUMED (testable=False). ASSUMED is never a pass.
+    Cards with affects_grade=False never add tested assumptions to the returned list.
 
 grade(design, sections) -> (grade, reasons)      see the docstring of `grade`.
 dag(prep, design, claim) -> Chart (kind "dag")   the ASSUMED causal diagram.
@@ -29,8 +40,14 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
+from .data import words
 from .schema import Assumption, Chart, Claim, Design, Prepared, Section, Status
 
+PULSE_MAX_RUN = 3            # a "pulse" is on for at most this many periods in a row ...
+PULSE_MAX_SHARE = 0.25       # ... and for at most this share of the unit's periods, then off again
+EST_WINDOW_MIN = 10
+EST_WINDOW_MAX = 120
+MARKET_WORDS = {"market", "mkt", "index", "benchmark"}
 MAX_EVENT_LEADS = 5
 MAX_EVENT_LAGS = 5
 MAX_COVARIATE_TESTS = 20
@@ -196,15 +213,41 @@ def assess(prep: Prepared, design: Design, claim: Optional[Claim]) -> tuple[list
     except Exception as e:  # noqa: BLE001 -- never raise
         sections.append(Section(key=f"design_{kind}", title="Design checks",
                                 error=f"The design checks could not be run ({type(e).__name__}: {e})."))
+    try:
+        r = prep.roles
+        if kind == "did":
+            pl = _safe(_placebo_time, prep, "design_placebo_time", "Placebo test: no effect before treatment started")
+            sections.append(pl)
+            assumptions += pl.assumptions
+        if kind == "iv":
+            # informational, not graded: its assumptions are NOT added to the returned list
+            sections.append(_safe(_endogeneity, prep, "design_endogeneity",
+                                  "Do the plain and the instrument estimates differ? (Durbin-Wu-Hausman)",
+                                  affects_grade=False))
+        if r.time and r.treatment and r.outcome:
+            sections.append(_safe(_functional_form, prep, "design_functional_form",
+                                  "Functional form of the linear comparison model (RESET)", affects_grade=False))
+        if r.unit and r.time and r.treatment and r.outcome:
+            ev = _safe(_event_study, prep, "design_event_study",
+                       "Event study tests (abnormal outcome on the event date)", affects_grade=False)
+            if ev is not None:
+                sections.append(ev)
+                assumptions += [a for a in ev.assumptions if a.status == Status.ASSUMED]
+    except Exception as e:  # noqa: BLE001 -- never raise
+        sections.append(Section(key=f"design_{kind}_extra", title="Additional design checks", affects_grade=False,
+                                error=f"The additional design checks could not be run ({type(e).__name__}: {e})."))
     assumptions += list(getattr(design, "conflicts", []) or [])
     return assumptions, sections
 
 
-def _safe(fn, prep, key, title) -> Section:
+def _safe(fn, prep, key, title, affects_grade: bool = True) -> Optional[Section]:
     try:
-        return fn(prep, key, title)
+        sec = fn(prep, key, title)
     except Exception as e:  # noqa: BLE001
-        return Section(key=key, title=title, error=f"This test could not be run ({type(e).__name__}: {e}).")
+        sec = Section(key=key, title=title, error=f"This test could not be run ({type(e).__name__}: {e}).")
+    if sec is not None and not affects_grade:
+        sec.affects_grade = False
+    return sec
 
 
 # ----------------------------------------------------------------------------- experiment
@@ -254,6 +297,7 @@ def _pretrends(prep: Prepared, key: str, title: str) -> Section:
     gg = g.merge(adopt.rename("a"), left_on="u", right_index=True)
     reversals = int(gg[(gg["p"] > gg["a"]) & (gg["t"] < 0.5)]["u"].nunique())
 
+    pulse = _pulse_info(unit, per, tr)
     n_never = int((adopt_arr < 0).sum())
     n_units = int(unit.max() + 1)
     staggered = len(set(adopt.drop(always, errors="ignore").to_numpy())) > 1
@@ -269,13 +313,20 @@ def _pretrends(prep: Prepared, key: str, title: str) -> Section:
     metrics = {"n_units": n_units, "n_periods": int(per.max() + 1), "n_never_treated": n_never,
                "adoption_cohorts": [int(c) for c in sorted(set(adopt.to_numpy()))],
                "staggered_adoption": bool(staggered), "n_always_treated": len(always),
-               "n_units_switching_off": reversals}
+               "n_units_switching_off": reversals, "pulse_treatment": bool(pulse["detected"])}
     warnings = []
-    if staggered:
+    if pulse["detected"]:
+        warnings.append(f"The treatment is a one-off event, not a lasting treatment: {pulse['n_pulse']} of "
+                        f"{pulse['n_ever']} treated unit(s) are treated for a short spell and then untreated again. "
+                        "Event time here is counted from each unit's event period. Points right of the line show the "
+                        "outcome after the event (the treatment is off again by then), so they are not effects of "
+                        "ongoing treatment; only the points left of the line are used for the test of trends "
+                        "before the event.")
+    elif staggered:
         warnings.append(f"Treatment starts at {len(set(adopt.to_numpy()))} different times (staggered adoption). "
                         "With effects that change over time or across cohorts, a plain two-way fixed-effects event "
                         "study mixes comparisons; treat the coefficients as a diagnostic, not as effects.")
-    if reversals:
+    if reversals and not pulse["detected"]:
         warnings.append(f"{reversals} unit(s) stop being treated after starting; the event study assumes treatment stays on.")
     if always:
         warnings.append(f"{len(always)} unit(s) are treated from the first period, so they have no pre-treatment data.")
@@ -369,7 +420,8 @@ def _pretrends(prep: Prepared, key: str, title: str) -> Section:
                                     "lo": [float(v - z * s) for _, v, s in pts],
                                     "hi": [float(v + z * s) for _, v, s in pts]}],
                         "vline": 0.0, "hline": 0.0},
-                  x_label="Periods since treatment started", y_label="Difference vs period -1",
+                  x_label="Periods since the event" if pulse["detected"] else "Periods since treatment started",
+                  y_label="Difference vs period -1",
                   note=f"Unit and time fixed effects; errors clustered by unit ({G} units). End points pool "
                        f"periods {-K} and earlier / {L} and later. Points left of the line test trends before treatment.")
     worst = Status.worst([a.status for a in assumptions])
@@ -384,6 +436,507 @@ def _pretrends(prep: Prepared, key: str, title: str) -> Section:
                    "parallel afterwards is still an assumption.")
     return Section(key=key, title=title, status=worst, summary=summary, metrics=metrics,
                    assumptions=assumptions, charts=[chart], warnings=warnings)
+
+
+# ----------------------------------------------------------------------------- panel helpers
+def _pulse_info(unit: np.ndarray, per: np.ndarray, tr: np.ndarray) -> dict:
+    """Is the treatment a PULSE (an event) rather than something that stays on?
+
+    A treated unit counts as a pulse unit when its first treated spell lasts at most
+    PULSE_MAX_RUN periods, it is observed untreated again afterwards, and it is treated in at
+    most PULSE_MAX_SHARE of its periods. Detected when more than half of the ever-treated
+    units (and at least 3) are pulse units. `event` maps pulse unit -> first treated period."""
+    out = {"detected": False, "n_pulse": 0, "n_ever": 0, "n_multi": 0, "event": {}}
+    g = pd.DataFrame({"u": unit, "p": per, "t": tr}).groupby(["u", "p"])["t"].mean().reset_index()
+    g["on"] = g["t"] >= 0.5
+    on = g[g["on"]]
+    if on.empty:
+        return out
+    first_on = on.groupby("u")["p"].min()
+    g2 = g.merge(first_on.rename("e"), left_on="u", right_index=True)
+    off_after = g2[(~g2["on"]) & (g2["p"] > g2["e"])].groupby("u")["p"].min()
+    g2 = g2.merge(off_after.rename("o"), left_on="u", right_index=True, how="left")
+    run = g2[g2["on"] & (g2["p"] < g2["o"].fillna(np.inf))].groupby("u").size()
+    n_on = on.groupby("u").size()
+    n_obs = g.groupby("u").size()
+    info = pd.DataFrame({"e": first_on, "run": run, "n_on": n_on}).join(n_obs.rename("n_obs"))
+    info["back_off"] = info.index.isin(off_after.index)
+    is_pulse = info["back_off"] & (info["run"] <= PULSE_MAX_RUN) & (info["n_on"] / info["n_obs"] <= PULSE_MAX_SHARE)
+    n_pulse, n_ever = int(is_pulse.sum()), int(len(info))
+    out.update({"n_pulse": n_pulse, "n_ever": n_ever,
+                "n_multi": int((is_pulse & (info["n_on"] > info["run"])).sum()),
+                "max_run": int(info.loc[is_pulse, "run"].max()) if n_pulse else 0,
+                "event": {int(u): int(e) for u, e in info.loc[is_pulse, "e"].items()},
+                "detected": bool(n_pulse >= 3 and n_pulse > 0.5 * n_ever)})
+    return out
+
+
+def _panel(prep: Prepared, extra: list[str] = ()) -> Optional[dict]:
+    """Complete rows of the panel with unit codes, dense period numbers and each unit's
+    first treated period (-1 = never treated). None if there are too few rows."""
+    r = prep.roles
+    d = prep.complete()
+    d = d[_observed(prep, r.unit).loc[d.index] & _observed(prep, r.time).loc[d.index]]
+    cols = list(dict.fromkeys([r.unit, r.time, r.treatment, r.outcome] + [c for c in extra if c in d]))
+    d = d[cols].dropna()
+    if len(d) < 20:
+        return None
+    unit = pd.factorize(d[r.unit])[0]
+    per = (d[r.time].rank(method="dense") - 1).astype(int).to_numpy()
+    tr = (d[r.treatment].to_numpy() > 0).astype(float)
+    g = pd.DataFrame({"u": unit, "p": per, "t": tr}).groupby(["u", "p"])["t"].mean().reset_index()
+    adopt = g[g["t"] >= 0.5].groupby("u")["p"].min()
+    adopt_arr = np.full(unit.max() + 1, -1)
+    adopt_arr[adopt.index.to_numpy()] = adopt.to_numpy()
+    first_per = np.full(unit.max() + 1, per.max() + 1)
+    np.minimum.at(first_per, unit, per)
+    return {"d": d, "unit": unit, "per": per, "tr": tr, "y": d[r.outcome].to_numpy(float),
+            "adopt": adopt_arr, "first_per": first_per}
+
+
+def _demean_oneway(M: np.ndarray, a: np.ndarray) -> np.ndarray:
+    M = M.astype(float)
+    sums = np.zeros((a.max() + 1, M.shape[1]))
+    np.add.at(sums, a, M)
+    return M - (sums / np.maximum(np.bincount(a, minlength=a.max() + 1), 1)[:, None])[a]
+
+
+def _fit(y: np.ndarray, X: np.ndarray, groups: Optional[np.ndarray] = None):
+    """OLS; cluster-robust covariance if `groups` is given, else HC1. Returns (b, V, df)."""
+    if groups is None:
+        b, V = _ols_hc1(y, X)
+        return b, V, max(len(y) - X.shape[1], 1)
+    XtX_inv = np.linalg.pinv(X.T @ X)
+    b = XtX_inv @ X.T @ y
+    V, G = _cluster_vcov(X, y - X @ b, groups, XtX_inv)
+    return b, V, max(G - 1, 1)
+
+
+# ----------------------------------------------------------------------------- RESET
+def _functional_form(prep: Prepared, key: str, title: str) -> Section:
+    """Ramsey RESET on the linear fixed-effects regression: outcome on treatment + the
+    adjustment set with unit and time fixed effects (time only without a unit role). Powers
+    (2, then 2 and 3) of the standardized fitted values, fixed effects included, are added
+    and tested jointly with a Wald test (clustered by unit when there is a unit role)."""
+    r = prep.roles
+    for role in ("time", "treatment", "outcome"):
+        if not getattr(r, role):
+            return Section(key=key, title=title, error=f"The {role} column is not set, so this test cannot be run.")
+    df = prep.complete()
+    m = _observed(prep, r.time).loc[df.index]
+    has_unit = bool(r.unit and r.unit in df)
+    if has_unit:
+        m &= _observed(prep, r.unit).loc[df.index]
+    adj = [c for c in prep.adjustment_set if c in df and c not in (r.treatment, r.outcome, r.time, r.unit)]
+    cols = list(dict.fromkeys([r.outcome, r.treatment, r.time] + ([r.unit] if has_unit else []) + adj))
+    d = df.loc[m, cols].dropna()
+    if len(d) < 30:
+        return Section(key=key, title=title, error="Too few complete rows to test the functional form.")
+    per = pd.factorize(d[r.time])[0]
+    unit = pd.factorize(d[r.unit])[0] if has_unit else None
+    y = d[r.outcome].to_numpy(float)
+    X = np.column_stack([d[c].to_numpy(float) for c in [r.treatment] + adj])
+
+    def within(M):
+        return _demean_twoway(M, unit, per) if has_unit else _demean_oneway(M, per)
+
+    Z = within(np.column_stack([y, X]))
+    yd, Xd = Z[:, 0], Z[:, 1:]
+    scale = np.sqrt((Xd ** 2).sum(0))
+    raw_scale = np.sqrt(((X - X.mean(0)) ** 2).sum(0))
+    keepc = scale > 1e-8 * np.maximum(raw_scale, 1e-300)
+    Xd = Xd[:, keepc]
+    if Xd.shape[1] == 0:
+        return Section(key=key, title=title,
+                       error="The treatment and covariates do not vary once the fixed effects are removed.")
+    b = np.linalg.pinv(Xd.T @ Xd) @ Xd.T @ yd
+    resid = yd - Xd @ b
+    fitted = y - resid                      # fitted values including the fixed effects
+    sd = fitted.std()
+    if not np.isfinite(sd) or sd <= 0:
+        return Section(key=key, title=title, error="The fitted values do not vary, so the test cannot be run.")
+    z = (fitted - fitted.mean()) / sd
+
+    def reset(powers):
+        P = within(np.column_stack([z ** k for k in powers]))
+        # the part of the powers not already explained by the linear terms must vary
+        Pr = P - Xd @ (np.linalg.pinv(Xd.T @ Xd) @ Xd.T @ P)
+        if np.any((Pr ** 2).sum(0) < 1e-8 * np.maximum((P ** 2).sum(0), 1e-300)):
+            return None
+        Xa = np.column_stack([Xd, P])
+        ba, Va, dfd = _fit(yd, Xa, unit)
+        q = len(powers)
+        if dfd <= q:
+            return None
+        F, p = _wald(ba[-q:], Va[-q:, -q:], dfd)
+        return {"F": _f(F), "p": _f(p), "df": [q, int(dfd)]} if _f(p) is not None else None
+
+    t2, t23 = reset([2]), reset([2, 3])
+    main = t23 or t2
+    fe_words = "unit and time fixed effects" if has_unit else "time fixed effects only (no unit column)"
+    se_words = f"errors clustered by '{r.unit}'" if has_unit else "heteroskedasticity-robust errors"
+    metrics = {"method": f"Ramsey RESET on the linear regression with {fe_words}; Wald test, {se_words}",
+               "reset_degree2": t2, "reset_degree2_3": t23,
+               "p": main["p"] if main else None, "n_obs": int(len(d)), "n_covariates": int(Xd.shape[1] - 1),
+               "fixed_effects": "unit+time" if has_unit else "time",
+               "n_clusters": int(unit.max() + 1) if has_unit else None}
+    scope = ("This speaks only to the linear two-way fixed-effects comparison model, not to the main "
+             "Callaway-Sant'Anna estimate, which does not rely on that model.")
+    if main is None:
+        return Section(key=key, title=title, status=None, metrics=metrics,
+                       summary="The functional-form test could not be computed (the added terms cannot be separated "
+                               "from the model). Nothing is concluded from it. " + scope)
+    p = main["p"]
+    parts = []
+    if t2:
+        parts.append(f"squared fitted values: p = {t2['p']:.3g}")
+    if t23:
+        parts.append(f"squared and cubed together: p = {t23['p']:.3g}")
+    if p >= 0.05:
+        status = Status.PASS
+        summary = (f"No sign that the straight-line model with fixed effects misses curvature ({'; '.join(parts)}). "
+                   + scope + " Passing it does not show that the design is valid, and it says nothing about "
+                   "parallel trends or hidden confounders.")
+    else:
+        status = Status.CONCERN
+        summary = (f"The straight-line model with fixed effects seems to miss curvature ({'; '.join(parts)}): the "
+                   "outcome may be better compared on another scale (for example in logs), or effects may differ "
+                   "with the level of the outcome. " + scope + " It is a warning about that comparison model, "
+                   "not evidence for or against a causal effect.")
+    # binned residuals against fitted values
+    charts = []
+    try:
+        nb = int(min(20, max(4, len(z) // 20)))
+        order = np.argsort(z, kind="stable")
+        chunks = np.array_split(order, nb)
+        pts = [{"x": float(fitted[c].mean()), "y": float(resid[c].mean()), "group": None} for c in chunks if len(c)]
+        charts.append(Chart(kind="scatter", title="What the linear model leaves over, by fitted value",
+                            data={"points": pts, "lines": [], "hline": 0.0},
+                            x_label="Fitted value (bin average)", y_label="Average leftover (residual)",
+                            note="Each point averages one slice of the data ordered by fitted value. A curve or "
+                                 "U-shape means the straight-line model misses something; a flat cloud around zero "
+                                 "does not prove the model right."))
+    except Exception:  # noqa: BLE001
+        pass
+    return Section(key=key, title=title, status=status, summary=summary, metrics=metrics, charts=charts)
+
+
+# ----------------------------------------------------------------------------- placebo in time
+PLACEBO_GROUP_NOTE = ("A placebo GROUP test (the same comparison on a group known to be unaffected by the "
+                      "treatment) was not run: it needs you to name such a group, which the data cannot do.")
+
+
+def _placebo_time(prep: Prepared, key: str, title: str) -> Section:
+    r = prep.roles
+    src = "design.did"
+    for role in ("unit", "time", "treatment", "outcome"):
+        if not getattr(r, role):
+            return Section(key=key, title=title, error=f"The {role} column is not set, so the placebo test cannot be run.")
+    P = _panel(prep)
+    if P is None:
+        return Section(key=key, title=title, error="Too few complete rows to run the placebo test.")
+    unit, per, y, adopt, first_per = P["unit"], P["per"], P["y"], P["adopt"], P["first_per"]
+    if not (adopt >= 0).any():
+        return Section(key=key, title=title, error="No unit ever becomes treated, so there is no placebo test to run.")
+    metrics: dict = {"placebo_group_note": PLACEBO_GROUP_NOTE}
+
+    def not_run(why: str) -> Section:
+        return Section(key=key, title=title, status=None, metrics=metrics,
+                       summary=f"The placebo-in-time test could not be run: {why} Nothing is concluded from it. "
+                               + PLACEBO_GROUP_NOTE)
+
+    switchers = (adopt >= 0) & (adopt > first_per)
+    if not switchers.any():
+        return not_run("every treated unit is treated from its first period, so there is no pre-treatment data.")
+    a_min = int(adopt[switchers].min())
+    n_pre = int((np.unique(per) < a_min).sum())
+    metrics["n_pre_periods_earliest_cohort"] = n_pre
+    if n_pre < 2:
+        return not_run(f"the earliest treated units have only {n_pre} period(s) before treatment; at least 2 are "
+                       "needed (one before and one after the pretend start).")
+    k = max(1, n_pre // 2)
+    keep = (adopt[unit] < 0) | (per < adopt[unit])
+    u, p_, yy = unit[keep], per[keep], y[keep]
+    D = ((adopt[u] >= 0) & (p_ >= adopt[u] - k)).astype(float)
+    uc, pc = pd.factorize(u)[0], pd.factorize(p_)[0]
+    Z = _demean_twoway(np.column_stack([yy, D]), uc, pc)
+    yd, Dd = Z[:, 0], Z[:, 1]
+    sdd = float(Dd @ Dd)
+    if D.sum() == 0 or sdd < 1e-8 * max(len(D), 1):
+        return not_run("in the periods before treatment the pretend treatment cannot be separated from the unit "
+                       "and time effects (no comparison units are left).")
+    b, V, dfd = _fit(yd, Dd[:, None], uc)
+    est, se = float(b[0]), float(np.sqrt(max(V[0, 0], 0)))
+    if not se > 0:
+        return not_run("the standard error of the placebo effect is zero.")
+    pval = float(2 * stats.t.sf(abs(est / se), dfd))
+    tc = float(stats.t.ppf(0.975, dfd))
+    ci = (est - tc * se, est + tc * se)
+    sd_y = float(np.std(yy))
+    metrics.update({"placebo_effect": est, "se": se, "p": pval, "ci95": [ci[0], ci[1]], "shift_periods": int(k),
+                    "n_obs": int(len(yy)), "n_clusters": int(dfd + 1), "outcome_sd_pre": sd_y,
+                    "n_placebo_treated_units": int(np.unique(u[D == 1]).size),
+                    "n_comparison_only_units": int((adopt[np.unique(u)] < 0).sum()),
+                    "method": "two-way fixed effects (unit and period) on pre-treatment observations only, "
+                              "errors clustered by unit; no covariates"})
+    status = Status.FAIL if pval < 0.01 else (Status.CONCERN if pval < 0.05 else Status.PASS)
+    how = (f"Using only data from before each unit's real start, and pretending treatment started {k} period(s) "
+           f"earlier, the 'effect' is {est:+.3g} (95% CI {ci[0]:+.3g} to {ci[1]:+.3g}, p = {pval:.3g}). "
+           "It should be zero, because nothing had happened yet.")
+    if status == Status.PASS:
+        tail = (" No effect shows up before treatment. This does not show that trends would have stayed parallel "
+                "afterwards; that stays an assumption.")
+    elif status == Status.CONCERN:
+        tail = " Some 'effect' shows up before treatment started, which points to different trends or anticipation."
+    else:
+        tail = (" A clear 'effect' shows up before treatment started: treated and comparison units were already "
+                "moving apart, so the real estimate cannot be read as the effect of treatment alone.")
+    a = _A("did_placebo_time", "No effect before treatment started (placebo in time)", status, how + tail, True, src)
+    chart = Chart(kind="forest", title="Pretend effect before treatment started (should be zero)",
+                  data={"rows": [{"label": f"Start moved {k} period(s) earlier", "est": est, "lo": ci[0], "hi": ci[1]}],
+                        "ref": 0.0},
+                  x_label=f"Change in {r.outcome}",
+                  note="Estimated only on observations from before each unit's real start. An interval away from zero "
+                       "is a warning sign; an interval around zero is not proof of parallel trends.")
+    return Section(key=key, title=title, status=status, summary=how + tail + " " + PLACEBO_GROUP_NOTE,
+                   metrics=metrics, assumptions=[a], charts=[chart])
+
+
+# ----------------------------------------------------------------------------- event study (pulse)
+def _market_covariate(prep: Prepared) -> Optional[str]:
+    for c in prep.adjustment_set:
+        if c in prep.df and not c.endswith("__missing") and set(words(c)) & MARKET_WORDS:
+            return c
+    return None
+
+
+def _event_study(prep: Prepared, key: str, title: str) -> Optional[Section]:
+    """Finance-style event-study tests, only when the treatment is a pulse. Returns None when
+    it is not (no card). Day 0 = the first treated period of each unit.
+
+    BMP (Boehmer, Musumeci & Poulsen 1991): SAR_i = AR_i0 / (s_i * sqrt(C_i)), with s_i the
+    estimation-window residual SD and C_i the forecast-error correction (market model:
+    1 + 1/M_i + (Rm_0 - mean Rm)^2 / sum (Rm_t - mean Rm)^2; mean-adjusted: 1 + 1/M_i);
+    t = mean(SAR) / (sd(SAR) / sqrt(N)) against t(N-1).
+    Corrado (1989) rank test with the Corrado & Zivney (1992) standardized ranks
+    U_it = rank(AR_it) / (1 + L_i) over estimation window + day 0 (L_i observations):
+    z = [N^-1/2 sum_i (U_i0 - 1/2)] / S, S^2 = mean over window days t of
+    [N_t^-1/2 sum_i (U_it - 1/2)]^2, against the standard normal."""
+    r = prep.roles
+    mkt = _market_covariate(prep)
+    P = _panel(prep, [mkt] if mkt else [])
+    if P is None:
+        return None
+    unit, per, y = P["unit"], P["per"], P["y"]
+    pulse = _pulse_info(unit, per, P["tr"])
+    if not pulse["detected"]:
+        return None
+    src = "design.event_study"
+    event = pulse["event"]
+    frame = pd.DataFrame({"u": unit, "p": per, "y": y})
+    if mkt:
+        frame["m"] = P["d"][mkt].to_numpy(float)
+    frame = frame[frame["u"].isin(list(event))].groupby(["u", "p"], sort=True).mean().reset_index()
+
+    W = EST_WINDOW_MAX
+    ar0, sars, cars, ev_periods = [], [], [], []
+    U = []                       # per unit: standardized ranks, last entry = day 0
+    prof_sum, prof_n = np.zeros(21), np.zeros(21)
+    n_short = n_flat = 0
+    for u_id, grp in frame.groupby("u", sort=False):
+        e = event[int(u_id)]
+        pp = grp["p"].to_numpy()
+        yy = grp["y"].to_numpy(float)
+        i0 = int(np.searchsorted(pp, e))
+        pre = np.arange(max(0, i0 - W), i0)
+        M = len(pre)
+        if M < EST_WINDOW_MIN or i0 >= len(pp) or pp[i0] != e:
+            n_short += 1
+            continue
+        if mkt:
+            mm = grp["m"].to_numpy(float)
+            xm, ym = mm[pre].mean(), yy[pre].mean()
+            sxx = float(((mm[pre] - xm) ** 2).sum())
+            if sxx <= 0:
+                n_flat += 1
+                continue
+            beta = float(((mm[pre] - xm) * (yy[pre] - ym)).sum() / sxx)
+            ar = yy - (ym - beta * xm) - beta * mm
+            s2 = float((ar[pre] ** 2).sum() / (M - 2))
+            C = 1 + 1 / M + (mm[i0] - xm) ** 2 / sxx
+        else:
+            ar = yy - yy[pre].mean()
+            s2 = float((ar[pre] ** 2).sum() / (M - 1))
+            C = 1 + 1 / M
+        if not s2 > 0:
+            n_flat += 1
+            continue
+        ar0.append(float(ar[i0]))
+        sars.append(float(ar[i0] / np.sqrt(s2 * C)))
+        ev_periods.append(e)
+        comb = np.r_[ar[pre], ar[i0]]
+        U.append(stats.rankdata(comb) / (len(comb) + 1))
+        pos = {int(q): j for j, q in enumerate(pp)}
+        if e - 1 in pos and e + 1 in pos:
+            cars.append(float(ar[pos[e - 1]] + ar[i0] + ar[pos[e + 1]]))
+        for kk in range(-10, 11):
+            j = pos.get(e + kk)
+            if j is not None:
+                prof_sum[kk + 10] += ar[j]
+                prof_n[kk + 10] += 1
+
+    N = len(ar0)
+    model = "market model" if mkt else "mean-adjusted"
+    metrics = {"n_events": N, "model": model, "market_column": mkt, "mean_abnormal": None, "bmp_stat": None,
+               "bmp_p": None, "corrado_stat": None, "corrado_p": None, "car_m1_p1": None,
+               "n_pulse_units": pulse["n_pulse"], "n_treated_units": pulse["n_ever"],
+               "n_units_skipped_short_window": n_short, "n_units_skipped_no_variation": n_flat,
+               "estimation_window": f"up to {EST_WINDOW_MAX} periods before the event (at least {EST_WINDOW_MIN}), "
+                                    "event period excluded",
+               "event_window": "the event period only (day 0)",
+               "mean_abnormal_se": (float(np.std(ar0, ddof=1) / np.sqrt(N)) if N >= 2 else None)}
+    assumed = _A("event_no_confounding_events", "Nothing else happened to these units on the event date",
+                 Status.ASSUMED,
+                 "An abnormal outcome on the event date is attributed to the event only if no other news or shock "
+                 "hit the same units on the same date. The data cannot show this.", False, src)
+    if N < 3:
+        return Section(key=key, title=title, status=None, metrics=metrics, assumptions=[assumed],
+                       summary=f"The treatment looks like a one-off event, but only {N} unit(s) have at least "
+                               f"{EST_WINDOW_MIN} periods before their event, so the event-study tests were not run.")
+    ar0a, sara = np.array(ar0), np.array(sars)
+    mean_ar = float(ar0a.mean())
+    sd_sar = float(sara.std(ddof=1))
+    bmp = float(sara.mean() / (sd_sar / np.sqrt(N))) if sd_sar > 0 else None
+    bmp_p = float(2 * stats.t.sf(abs(bmp), N - 1)) if bmp is not None else None
+    # Corrado / Corrado-Zivney: align windows on the event (last column = day 0)
+    Lmax = max(len(v) for v in U)
+    Um = np.full((N, Lmax), np.nan)
+    for i, v in enumerate(U):
+        Um[i, Lmax - len(v):] = v
+    dev = Um - 0.5
+    n_t = (~np.isnan(dev)).sum(0)
+    A = np.nansum(dev, axis=0) / np.sqrt(np.maximum(n_t, 1))
+    S = float(np.sqrt(np.mean(A[n_t > 0] ** 2)))
+    corr = float(A[-1] / S) if S > 0 else None
+    corr_p = float(2 * stats.norm.sf(abs(corr))) if corr is not None else None
+    car = float(np.mean(cars)) if cars else None
+    car_p = None
+    if len(cars) >= 3 and np.std(cars, ddof=1) > 0:
+        car_p = float(stats.ttest_1samp(cars, 0.0).pvalue)
+    vals, counts = np.unique(ev_periods, return_counts=True)
+    top_share = float(counts.max() / N)
+    metrics.update({"mean_abnormal": mean_ar, "median_abnormal": float(np.median(ar0a)),
+                    "share_positive": float((ar0a > 0).mean()), "bmp_stat": bmp, "bmp_p": bmp_p,
+                    "corrado_stat": corr, "corrado_p": corr_p, "car_m1_p1": car, "car_m1_p1_n": len(cars),
+                    "car_m1_p1_p": car_p, "n_event_dates": int(len(vals)), "max_share_same_date": top_share,
+                    "mean_estimation_window": float(np.mean([len(v) - 1 for v in U]))})
+    warnings = []
+    if top_share > 0.2:
+        warnings.append(f"{top_share:.0%} of the events fall in the same period. Units hit on the same date move "
+                        "together, and the Boehmer-Musumeci-Poulsen test then rejects too often (Kolari & Pynnonen "
+                        "2010); read its p-value as too small.")
+    if pulse["n_multi"]:
+        warnings.append(f"{pulse['n_multi']} unit(s) have more than one event; only the first is used; later "
+                        "events are ignored.")
+    if pulse.get("max_run", 1) > 1:
+        warnings.append("For some units the treatment lasts more than one period; day 0 is the first of them.")
+    if n_short or n_flat:
+        warnings.append(f"{n_short + n_flat} treated unit(s) were left out (fewer than {EST_WINDOW_MIN} periods "
+                        "before the event, or no variation to fit the expected-outcome model).")
+    if pulse["n_ever"] > pulse["n_pulse"]:
+        warnings.append(f"{pulse['n_ever'] - pulse['n_pulse']} treated unit(s) do not look like one-off events "
+                        "(treatment stays on) and are not part of these tests.")
+    if N < 30:
+        warnings.append(f"Only {N} events: both tests lean on large-sample approximations.")
+    model_words = (f"a market model (each unit's outcome regressed on '{mkt}' over its estimation window)" if mkt else
+                   "the mean-adjusted model (each unit's own average over its estimation window; no market-like "
+                   "column was found)")
+
+    def ptxt(p):
+        return "not computable" if p is None else f"p = {p:.3g}"
+
+    summary = (f"The treatment is a one-off event for {pulse['n_pulse']} unit(s). On the event date the outcome was "
+               f"on average {mean_ar:+.3g} away from what {model_words} expected ({N} events). "
+               f"Boehmer-Musumeci-Poulsen test: {ptxt(bmp_p)}; Corrado rank test: {ptxt(corr_p)}."
+               + (f" Summed over the periods -1 to +1 the average is {car:+.3g}." if car is not None else "")
+               + " These tests ask whether the outcome moved unusually on the event date. They do not show that "
+               "the event caused the move: anything else that happened to these units on the same date is counted in.")
+    ks = [k for k in range(-10, 11) if prof_n[k + 10] > 0]
+    chart = Chart(kind="line", title="Average abnormal outcome around the event",
+                  data={"series": [{"name": "Average abnormal outcome", "x": [float(k) for k in ks],
+                                    "y": [float(prof_sum[k + 10] / prof_n[k + 10]) for k in ks],
+                                    "lo": None, "hi": None}],
+                        "vline": 0.0, "hline": 0.0},
+                  x_label="Periods relative to the event", y_label=f"Abnormal {r.outcome}",
+                  note=f"Abnormal = observed minus expected under {model}. Periods before the event are inside the "
+                       "estimation window, so they average close to zero by construction.")
+    return Section(key=key, title=title, status=None, summary=summary, metrics=metrics, assumptions=[assumed],
+                   charts=[chart], warnings=warnings)
+
+
+# ----------------------------------------------------------------------------- IV: Durbin-Wu-Hausman
+def _endogeneity(prep: Prepared, key: str, title: str) -> Section:
+    """Regression-based (control-function) Durbin-Wu-Hausman test: the first-stage residual is
+    added to the outcome regression and its coefficient is t-tested with robust errors."""
+    r = prep.roles
+    for role in ("instrument", "treatment", "outcome"):
+        if not getattr(r, role):
+            return Section(key=key, title=title, error=f"The {role} column is not set, so this test cannot be run.")
+    df = prep.df
+    mask = _observed(prep, r.instrument) & df[r.treatment].notna() & df[r.outcome].notna()
+    adj = [c for c in prep.adjustment_set if c in df and c not in (r.instrument, r.treatment, r.outcome)]
+    d = df.loc[mask, list(dict.fromkeys([r.instrument, r.treatment, r.outcome] + adj))].dropna()
+    adj = [c for c in adj if d[c].nunique() > 1]
+    if len(d) < 20 or d[r.instrument].nunique() < 2 or d[r.treatment].nunique() < 2:
+        return Section(key=key, title=title,
+                       error="Too few complete rows, or the instrument or the treatment does not vary.")
+    groups = None
+    se_type = "heteroskedasticity-robust (HC1)"
+    if r.cluster and r.cluster in prep.df and prep.df.loc[d.index, r.cluster].notna().all():
+        groups = pd.factorize(prep.df.loc[d.index, r.cluster])[0]
+        se_type = f"cluster-robust by '{r.cluster}' ({int(groups.max() + 1)} clusters)"
+    one = np.ones(len(d))
+    Zv, T, Y = (d[c].to_numpy(float) for c in (r.instrument, r.treatment, r.outcome))
+    Xc = [d[c].to_numpy(float) for c in adj]
+    X1 = np.column_stack([one, Zv] + Xc)
+    b1, V1, _ = _fit(T, X1, groups)
+    se1 = float(np.sqrt(max(V1[1, 1], 0)))
+    F = float((b1[1] / se1) ** 2) if se1 > 0 else None
+    v = T - X1 @ b1
+    b_ols, _, _ = _fit(Y, np.column_stack([one, T] + Xc), groups)
+    X2 = np.column_stack([one, T] + Xc + [v])
+    if np.linalg.matrix_rank(X2) < X2.shape[1]:
+        return Section(key=key, title=title,
+                       error="The instrument does not move the treatment at all in this sample, so the test "
+                             "cannot be computed.")
+    b2, V2, dfd = _fit(Y, X2, groups)
+    se = float(np.sqrt(max(V2[-1, -1], 0)))
+    if not se > 0:
+        return Section(key=key, title=title, error="The test statistic could not be computed.")
+    tval = float(b2[-1] / se)
+    p = float(2 * stats.t.sf(abs(tval), dfd)) if groups is not None else float(2 * stats.norm.sf(abs(tval)))
+    metrics = {"method": "Durbin-Wu-Hausman, regression (control-function) version: first-stage residual added "
+                         "to the outcome regression",
+               "residual_coef": float(b2[-1]), "residual_se": se, "t": tval, "p": p, "se_type": se_type,
+               "ols_estimate": float(b_ols[1]), "iv_estimate": float(b2[1]),
+               "difference_ols_minus_iv": float(b_ols[1] - b2[1]), "first_stage_F": F, "n": int(len(d)),
+               "n_covariates": len(adj)}
+    warnings = []
+    if F is None or F < 10:
+        warnings.append("The first stage is weak (F " + (f"= {F:.1f}" if F is not None else "not computable")
+                        + " < 10). With a weak instrument this test is uninformative: a large p-value does not "
+                          "mean the treatment is free of confounding.")
+    gap = f"plain regression {b_ols[1]:+.3g} vs instrument estimate {b2[1]:+.3g}"
+    if p < 0.05:
+        lead = (f"The plain regression and the instrument estimate disagree ({gap}; p = {p:.3g}): the treatment "
+                "looks tied to unmeasured drivers of the outcome, so the instrument estimate is the one to read.")
+    else:
+        lead = (f"No detectable difference between the plain regression and the instrument estimate ({gap}; "
+                f"p = {p:.3g}). That is not evidence that the treatment is free of hidden confounding; the test "
+                "may simply lack power.")
+    caveat = (" This test ASSUMES the instrument is valid. It cannot test the exclusion restriction or whether "
+              "the instrument is as good as random, and it tells you nothing when the first stage is weak.")
+    return Section(key=key, title=title, status=None, summary=lead + caveat, metrics=metrics, warnings=warnings)
 
 
 # ----------------------------------------------------------------------------- IV
@@ -890,6 +1443,67 @@ def dag(prep: Prepared, design: Design, claim: Optional[Claim]) -> Chart:
                      note=f"The diagram could not be drawn ({type(e).__name__}: {e}).")
 
 
+G_TREATMENT = "treatment"
+G_OUTCOME = "outcome"
+G_CONFOUNDERS = "confounders (assumed)"
+G_INSTRUMENT = "instrument (assumed)"
+G_RUNNING = "running variable"
+G_FIXED = "fixed effects (unit and time)"
+G_UNMEASURED = "unmeasured (not in the data)"
+G_POST = "measured after treatment"
+G_COLLIDER = "possible colliders (not adjusted for)"
+ROLE_GROUP = {"treatment": G_TREATMENT, "outcome": G_OUTCOME, "confounder (assumed)": G_CONFOUNDERS,
+              "instrument (assumed)": G_INSTRUMENT, "running variable": G_RUNNING, "fixed effect": G_FIXED,
+              "unmeasured confounder": G_UNMEASURED, "post-treatment (excluded)": G_POST,
+              "possible collider (excluded)": G_COLLIDER}
+GROUP_NOTES = {
+    G_TREATMENT: "The cause being examined.",
+    G_OUTCOME: "The result being examined.",
+    G_CONFOUNDERS: "Columns adjusted for, on the assumption that they were measured before treatment and may "
+                   "drive both treatment and outcome. That they are confounders is assumed, not shown.",
+    G_INSTRUMENT: "Assumed to shift the treatment and to affect the outcome in no other way (untestable).",
+    G_RUNNING: "The score that decides treatment at the cutoff.",
+    G_FIXED: "Unit and time identifiers; differences between units and between periods are removed.",
+    G_UNMEASURED: "Anything not in the data that could drive both treatment and outcome. It cannot be checked.",
+    G_POST: "Columns you marked (or that were flagged) as measured after treatment. They are not adjusted for, "
+            "because adjusting for a consequence of treatment biases the estimate.",
+    G_COLLIDER: "Columns marked as measured after treatment that are also associated with both the treatment and "
+                "the outcome in the data. They may be common effects of the two (colliders); this is a hypothesis "
+                "from that pattern plus the marking, not a finding. Adjusting for one would open a non-causal "
+                "path, so they are left out.",
+}
+COLLIDER_ALPHA = 0.01
+
+
+def _assoc_p(a: pd.Series, b: pd.Series) -> Optional[float]:
+    d = pd.concat([a, b], axis=1).dropna()
+    if len(d) < 10 or d.iloc[:, 0].nunique() < 2 or d.iloc[:, 1].nunique() < 2:
+        return None
+    return _f(stats.pearsonr(d.iloc[:, 0].to_numpy(float), d.iloc[:, 1].to_numpy(float))[1])
+
+
+def _collider_evidence(prep: Prepared, orig: str) -> dict:
+    """Smallest correlation p-value of a post-treatment column (any one-hot child) with the
+    treatment and with the outcome, on rows with both observed."""
+    r = prep.roles
+    out = {"p_treatment": None, "p_outcome": None, "possible_collider": False}
+    if not r.treatment or not r.outcome:
+        return out
+    d = prep.complete()
+    children = [c for c in prep.encoding.get(orig, [orig])
+                if c in d and not c.endswith("__missing") and c not in (r.treatment, r.outcome)]
+    for c in children:
+        if not pd.api.types.is_numeric_dtype(d[c]):
+            continue
+        for role_col, k in ((r.treatment, "p_treatment"), (r.outcome, "p_outcome")):
+            p = _assoc_p(d[c], d[role_col])
+            if p is not None and (out[k] is None or p < out[k]):
+                out[k] = p
+    out["possible_collider"] = bool(out["p_treatment"] is not None and out["p_outcome"] is not None
+                                    and out["p_treatment"] < COLLIDER_ALPHA and out["p_outcome"] < COLLIDER_ALPHA)
+    return out
+
+
 def _dag(prep: Prepared, design: Design) -> Chart:
     r = prep.roles
     kind = getattr(design, "kind", "observational")
@@ -900,7 +1514,7 @@ def _dag(prep: Prepared, design: Design) -> Chart:
     def node(i, role, **kw):
         if i and i not in ids:
             ids.add(i)
-            nodes.append({"id": i, "role": role, **kw})
+            nodes.append({"id": i, "role": role, "group": ROLE_GROUP.get(role, role), **kw})
 
     def edge(a, b, typ="directed", label="hypothesis"):
         if a in ids and b in ids:
@@ -952,9 +1566,21 @@ def _dag(prep: Prepared, design: Design) -> Chart:
             node(fe, "fixed effect")
             edge(fe, T)
             edge(fe, Y)
+    colliders = []
     for p in r.post_treatment:
-        if p not in ids:
-            node(p, "post-treatment (excluded)")
+        if p in ids:
+            continue
+        try:
+            ev = _collider_evidence(prep, p)
+        except Exception:  # noqa: BLE001 -- the diagram is still drawn
+            ev = {"p_treatment": None, "p_outcome": None, "possible_collider": False}
+        if ev["possible_collider"]:
+            colliders.append(p)
+            node(p, "possible collider (excluded)", p_treatment=ev["p_treatment"], p_outcome=ev["p_outcome"])
+            edge(T, p)
+            edge(Y, p)
+        else:
+            node(p, "post-treatment (excluded)", p_treatment=ev["p_treatment"], p_outcome=ev["p_outcome"])
             edge(T, p, label="hypothesis (measured after treatment; not adjusted for)")
     if kind == "observational":
         node(U, "unmeasured confounder", dashed=True)
@@ -964,12 +1590,28 @@ def _dag(prep: Prepared, design: Design) -> Chart:
     if kind == "experiment":
         missing_edges.append({"from": "covariates", "to": T, "label": "absent because treatment was randomized (as you said)"})
 
-    note = ("Every role and arrow here is a hypothesis taken from the declared design and roles, not something "
-            "the data showed.")
+    groups = []
+    for n in nodes:
+        g = next((x for x in groups if x["name"] == n["group"]), None)
+        if g is None:
+            g = {"name": n["group"], "members": [], "note": GROUP_NOTES.get(n["group"], "")}
+            groups.append(g)
+        g["members"].append(n["id"])
+
+    note = ("Every role, group and arrow here is a hypothesis taken from the declared design and roles, not "
+            "something the data showed.")
     if kind == "iv":
         note += (f" There is deliberately no arrow from '{r.instrument}' to '{Y}': that is the exclusion "
                  "restriction, an untestable assumption.")
     if kind == "observational":
         note += " The dashed U stands for anything unmeasured that drives both treatment and outcome; it is assumed away."
+    if colliders:
+        note += (" Possible colliders (" + ", ".join(f"'{c}'" for c in colliders) + ") are a hypothesis from the "
+                 "data pattern (associated with both treatment and outcome) plus your marking them as measured "
+                 "after treatment; the same pattern also fits a column that treatment changes and that in turn "
+                 "affects the outcome. Adjusting for a collider would open a non-causal path between treatment "
+                 "and outcome, which is why they are excluded.")
+    note += (" A collider measured before treatment cannot be detected from data, so one may be sitting among "
+             "the columns adjusted for.")
     return Chart(kind="dag", title="Assumed causal diagram",
-                 data={"nodes": nodes, "edges": edges, "missing_edges": missing_edges}, note=note)
+                 data={"nodes": nodes, "edges": edges, "missing_edges": missing_edges, "groups": groups}, note=note)

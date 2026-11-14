@@ -117,6 +117,20 @@ def _ci(est, se, level, dfree=None):
     return (float(est - c * se), float(est + c * se))
 
 
+CI_LEVELS = (0.90, 0.95, 0.98, 0.99)
+
+
+def _set_ci_levels(e: Estimate, centre, se, dfree=None) -> None:
+    """extra["ci_levels"]: intervals at 90/95/98/99% by the same rule as ci90/ci95 (same centre,
+    SE and reference distribution). The "90" and "95" entries are e.ci90 / e.ci95 themselves."""
+    out = {}
+    for lv in CI_LEVELS:
+        key = str(int(round(lv * 100)))
+        ci = e.ci90 if key == "90" else (e.ci95 if key == "95" else _ci(centre, se, lv, dfree))
+        out[key] = [float(ci[0]), float(ci[1])]
+    e.extra["ci_levels"] = out
+
+
 def _pval(est, se, dfree=None):
     z = abs(est / se)
     return float(2 * stats.t.sf(z, dfree)) if dfree else float(2 * stats.norm.sf(z))
@@ -139,6 +153,7 @@ def _finish(e: Estimate, est, se, dfree=None) -> Estimate:
     e.estimate, e.se = est_f, se_f
     e.ci90, e.ci95 = _ci(est_f, se_f, 0.90, dfree), _ci(est_f, se_f, 0.95, dfree)
     e.p_value = _pval(est_f, se_f, dfree)
+    _set_ci_levels(e, est_f, se_f, dfree)
     if dfree:
         e.extra["t_df"] = int(dfree)
     return e
@@ -956,6 +971,8 @@ def _iv(prep: Prepared, d: pd.DataFrame, claim) -> Estimate:
         c_scale = 1.0 / ((Gc / max(Gc - 1, 1)) * ((n - 1) / max(n - Zm.shape[1], 1)))
     ar95 = _ar_set(yt, dt, zt, groups, 0.95, 1.0 / c_scale)
     ar90 = _ar_set(yt, dt, zt, groups, 0.90, 1.0 / c_scale)
+    ar98 = _ar_set(yt, dt, zt, groups, 0.98, 1.0 / c_scale)
+    ar99 = _ar_set(yt, dt, zt, groups, 0.99, 1.0 / c_scale)
     bounded = bool(ar95) and not any(math.isinf(a) or math.isinf(b) for a, b in ar95)
     if fs_F < 10:
         notes.append(f"The instrument is weak (first-stage F = {fs_F:.1f} < 10); trust the Anderson-Rubin interval, "
@@ -983,7 +1000,7 @@ def _iv(prep: Prepared, d: pd.DataFrame, claim) -> Estimate:
         "weak_instrument": bool(not (fs_F >= 10)),
         "reduced_form": {"est": _f(rf_b[0]), "se": _f(math.sqrt(max(rf_V[0, 0], 0)))},
         "ar_ci95": ar95, "ar_ci90": ar90, "ar_ci95_bounded": bounded, "ar_ci95_text": _describe_set(ar95),
-        "ar_ci90_text": _describe_set(ar90),
+        "ar_ci90_text": _describe_set(ar90), "ar_ci98": ar98, "ar_ci99": ar99,
         "ar_method": "robust Anderson-Rubin test inverted exactly (the statistic is a ratio of quadratics in the effect)",
         "covariates": names, "instrument": r.instrument,
         "se_type": "heteroskedasticity-robust" + (f", clustered by {r.cluster}" if groups is not None else ""),
@@ -1179,6 +1196,7 @@ def _rd(prep: Prepared, d: pd.DataFrame, claim) -> Estimate:
         e.ci90 = _ci(fit["tau_bc"], fit["se_rb"], 0.90, dfree)
         e.ci95 = _ci(fit["tau_bc"], fit["se_rb"], 0.95, dfree)
         e.p_value = _pval(fit["tau_bc"], fit["se_rb"], dfree)
+        _set_ci_levels(e, fit["tau_bc"], fit["se_rb"], dfree)
     for mult, lab in ((0.5, "Half bandwidth"), (2.0, "Double bandwidth")):
         hm = min(h * mult, xr * 1.0001)
         bm = min(max(hm * n ** (2 / 35), hm), xr * 1.0001)

@@ -261,6 +261,21 @@
    "caps_verdict": false,
    "affects_grade": true,
    "error": null
+  },
+  {
+   "key": "design_endogeneity",
+   "title": "Could the cause and the effect feed each other?",
+   "status": null,
+   "summary": "Shown for context only. Several pairs could run in either direction.",
+   "metrics": {
+    "pairs_with_unclear_direction": 3
+   },
+   "assumptions": [],
+   "charts": [],
+   "warnings": [],
+   "caps_verdict": false,
+   "affects_grade": false,
+   "error": null
   }
  ],
  "estimate": null,
@@ -388,7 +403,8 @@
       },
       {
        "id": "blood_pressure",
-       "role": "variable"
+       "role": "collider (found)",
+       "group": "Colliders found"
       },
       {
        "id": "age",
@@ -452,6 +468,15 @@
        "to": "income",
        "type": "undirected",
        "confidence": 0.44
+      }
+     ],
+     "groups": [
+      {
+       "name": "Colliders found",
+       "members": [
+        "blood_pressure"
+       ],
+       "note": "Two or more arrows point into this column. Do not control for it when studying its causes."
       }
      ]
     },

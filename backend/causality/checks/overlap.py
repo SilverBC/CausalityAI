@@ -104,8 +104,28 @@ def _support(ps: np.ndarray, T: np.ndarray) -> tuple[float, float]:
     return float(lo), float(hi)
 
 
-def _keep(ps: np.ndarray, lo: float, hi: float) -> np.ndarray:
-    return (ps >= max(TRIM_LO, lo) - 1e-12) & (ps <= min(TRIM_HI, hi) + 1e-12)
+def trim_alpha(n: int, k: int) -> float:
+    """Trimming bound: keep propensity scores in [alpha, 1 - alpha].
+
+    A fixed, pre-stated rule that depends only on the sample size n and the number of
+    covariates k (never on the outcome or the estimate):
+        alpha = clip(0.5 * sqrt((k + 1) * ln(n) / n), 0.01, 0.10)
+    The noise in an estimated propensity score shrinks like sqrt(k / n), so a large, simple
+    sample can tell a score of 0.02 from 0 and may keep it, while a small or
+    high-dimensional one cannot and must trim more. n=3000, k=3 gives about 0.05."""
+    n, k = max(int(n), 2), max(int(k), 0)
+    return float(np.clip(0.5 * np.sqrt((k + 1) * np.log(n) / n), 0.01, 0.10))
+
+
+def auc_lower(auc: float, n1: int, n0: int) -> float:
+    """Lower 95% bound of a cross-fitted AUC (simple binomial-style approximation on the
+    smaller group), so a small sample is not rejected on noise alone."""
+    m = max(min(int(n1), int(n0)), 1)
+    return float(auc - 1.96 * np.sqrt(max(auc * (1 - auc), 0.0) / m))
+
+
+def _keep(ps: np.ndarray, lo: float, hi: float, alpha: float = TRIM_LO) -> np.ndarray:
+    return (ps >= max(alpha, lo) - 1e-12) & (ps <= min(1 - alpha, hi) + 1e-12)
 
 
 def trim_mask(prep: Prepared) -> pd.Series:
@@ -125,7 +145,7 @@ def trim_mask(prep: Prepared) -> pd.Series:
         T = prep.df.loc[rows, t].to_numpy(dtype=int)
         lo, hi = _support(ps, T)
         keep = np.zeros(len(prep.df), dtype=bool)
-        keep[rows] = _keep(ps, lo, hi)
+        keep[rows] = _keep(ps, lo, hi, trim_alpha(len(ps), len([c for c in prep.adjustment_set if c in prep.df])))
         return pd.Series(keep, index=prep.df.index)
     except Exception:  # noqa: BLE001
         return pd.Series(True, index=prep.df.index)
@@ -172,13 +192,15 @@ def _run(prep: Prepared, design: Design, claim: Optional[Claim]) -> Section:
     lo, hi = _support(ps, T)
     out_t = float(np.mean((ps[T == 1] < lo) | (ps[T == 1] > hi)))
     out_c = float(np.mean((ps[T == 0] < lo) | (ps[T == 0] > hi)))
-    keep = _keep(ps, lo, hi)
+    alpha = trim_alpha(len(ps), len(cols))
+    keep = _keep(ps, lo, hi, alpha)
     trim_t = float(1 - keep[T == 1].mean())
     trim_c = float(1 - keep[T == 0].mean())
     trim_all = float(1 - keep.mean())
     kept_t, kept_c = int(keep[T == 1].sum()), int(keep[T == 0].sum())
     auc_l, auc_g = f["auc_logit"], f["auc_gb"]
     auc_max = max(auc_l, auc_g)
+    auc_lb = auc_lower(auc_max, n1, n0)   # rejection uses the lower bound: sample-size aware
 
     # where overlap breaks down: describe each tail separately (high vs low propensity),
     # since trimmed units on both sides can average out to look like the kept ones
@@ -204,9 +226,9 @@ def _run(prep: Prepared, design: Design, claim: Optional[Claim]) -> Section:
 
     # status
     few = min(kept_t, kept_c) < 10 or min(kept_t / max(n1, 1), kept_c / max(n0, 1)) < 0.2
-    if trim_all > 0.20 or auc_max > 0.9 or few:
+    if trim_all > 0.20 or auc_lb > 0.9 or few:
         status = Status.FAIL
-    elif trim_all >= 0.05 or auc_max >= 0.8:
+    elif trim_all >= 0.05 or auc_lb >= 0.8:
         status = Status.CONCERN
     else:
         status = Status.PASS
@@ -221,7 +243,8 @@ def _run(prep: Prepared, design: Design, claim: Optional[Claim]) -> Section:
 
     summary = (f"Covariates predict treatment with AUC {auc_l:.2f} (logistic) and {auc_g:.2f} (boosting); "
                f"0.5 means no better than a coin flip. Common support of the propensity score runs from "
-               f"{lo:.2f} to {hi:.2f}. Trimming to scores in [{TRIM_LO}, {TRIM_HI}] inside that range drops "
+               f"{lo:.2f} to {hi:.2f}. Trimming to scores in [{alpha:.3f}, {1 - alpha:.3f}] (a fixed rule from the sample size and the "
+               f"number of covariates) inside that range drops "
                f"{trim_t:.0%} of treated and {trim_c:.0%} of control units ({trim_all:.0%} overall).")
     if where_txt:
         summary += " " + where_txt
@@ -233,7 +256,7 @@ def _run(prep: Prepared, design: Design, claim: Optional[Claim]) -> Section:
         summary += " Many units have no comparable counterparts; an effect for everyone cannot be estimated " \
                    "without extrapolating, so only the overlap region can be studied."
 
-    detail = (f"AUC {auc_max:.2f}; {trim_all:.0%} of units fall outside the region where both groups are present.")
+    detail = (f"AUC {auc_max:.2f} (lower bound {auc_lb:.2f}); {trim_all:.0%} of units fall outside the region where both groups are present.")
     assumptions = [Assumption("overlap", "Overlap / positivity: every kind of unit could have been in either group",
                               status, detail, True, "overlap")]
 
@@ -253,7 +276,9 @@ def _run(prep: Prepared, design: Design, claim: Optional[Claim]) -> Section:
                "outside_support_treated": out_t, "outside_support_control": out_c,
                "trimmed_share_treated": trim_t, "trimmed_share_control": trim_c, "trimmed_share": trim_all,
                "n_kept_treated": kept_t, "n_kept_control": kept_c, "n_treated": n1, "n_control": n0,
-               "trim_rule": f"propensity in [{TRIM_LO}, {TRIM_HI}] and inside common support (1st-99th percentiles)",
+               "trim_rule": f"propensity in [{alpha:.3f}, {1 - alpha:.3f}] and inside common support (1st-99th percentiles)",
+               "trim_alpha": alpha, "trim_alpha_rule": "clip(0.5*sqrt((k+1)*ln(n)/n), 0.01, 0.10)",
+               "auc_lower_bound": auc_lb, "propensity_used": "average of the logistic and boosting models (cross-fitted)",
                "where_overlap_fails": where,
                "n_covariates": len(cols)}
     return Section(key=KEY, title=TITLE, status=status, summary=summary, metrics=metrics,

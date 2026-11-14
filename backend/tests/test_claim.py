@@ -190,3 +190,187 @@ def test_columns_differ_and_did(P):
     assert (c.treatment_col, c.outcome_col) == ("policy", "sales")
     assert c.treatment_col != c.outcome_col
     assert c.size_unit == "absolute"
+
+
+# ----------------------------------------------------------------- instrument + design hint
+def test_instrument_collected_and_matched(P):
+    c = parse_claim("Enrolling raises test score, using the lottery as an instrument", P["iv"])
+    assert c.instrument_phrase == "lottery"
+    assert c.instrument_col == "lottery" and c.instrument_score == 1.0
+    assert c.candidates["instrument"][0] == ("lottery", 1.0) and len(c.candidates["instrument"]) <= 3
+    assert (c.treatment_col, c.outcome_col) == ("enrolled", "test_score")
+    assert (c.treatment_phrase, c.outcome_phrase) == ("enrolling", "test score")
+    assert c.direction == "increase" and c.design_hint == "iv"
+    assert c.design_hint_phrase == "using the lottery as an instrument"
+    assert not c.needs_confirmation and c.testable
+    assert any(n.startswith("The claim names an instrument") for n in c.notes)
+    assert any("hint only" in n for n in c.notes)
+
+
+@pytest.mark.parametrize("text", [
+    "Using the lottery as an instrument, enrolling raises test score",
+    "Enrolling raises test score, with the lottery as an instrumental variable",
+    "Enrolling raises test score, with the lottery as an instrumental variable for enrollment",
+    "Enrollment, instrumented by the lottery, raises test score",
+    "Enrollment instrumented with the lottery raises test score",
+    "Enrolling raises test score, with enrollment instrumented by the lottery",
+    "Enrolling raises test score (lottery as an IV)",
+    "IV: lottery. Enrolling raises test score",
+    "Enrolling raises test score using the lottery instrument",
+    "Instrumenting enrollment with the lottery, enrolling raises test score",
+])
+def test_instrument_wordings(P, text):
+    c = parse_claim(text, P["iv"])
+    assert c.instrument_phrase == "lottery" and c.instrument_col == "lottery"
+    assert (c.treatment_col, c.outcome_col) == ("enrolled", "test_score")
+    assert c.outcome_phrase == "test score" and c.population_phrase is None
+    assert c.direction == "increase" and c.design_hint == "iv" and c.testable
+
+
+def test_instrument_never_treatment_or_outcome(P):
+    c = parse_claim("The lottery raises test score, using the lottery as an instrument", P["iv"])
+    assert c.instrument_col == "lottery"
+    assert c.treatment_col != "lottery" and c.outcome_col == "test_score"
+    assert all(col != "lottery" for col, _s in c.candidates["treatment"] + c.candidates["outcome"])
+    c = parse_claim("Enrolling affects the lottery, instrumented by the lottery", P["iv"])
+    assert c.instrument_col == "lottery" and c.outcome_col != "lottery"
+
+
+def test_instrument_without_column_does_not_ask(P):
+    c = parse_claim("Enrolling raises test score, using rainfall as an instrument", P["iv"])
+    assert c.instrument_phrase == "rainfall" and c.instrument_col is None and c.instrument_score == 0.0
+    assert c.candidates["instrument"] == []
+    assert (c.treatment_col, c.outcome_col) == ("enrolled", "test_score")
+    assert not c.needs_confirmation and c.design_hint == "iv"
+    assert any("no column matches" in n for n in c.notes)
+
+
+def test_iv_hint_without_named_instrument(P):
+    for text, phrase in [("Enrolling raises test score by 2SLS", "2SLS"),
+                         ("IV estimates show that enrolling raises test score", "IV"),
+                         ("Enrolling raises test score. The instrument is weak", "instrument"),
+                         ("Enrolling raises test score using two-stage least squares", "two-stage least squares")]:
+        c = parse_claim(text, P["iv"])
+        assert c.design_hint == "iv" and c.design_hint_phrase == phrase
+        assert c.instrument_phrase is None and c.instrument_col is None
+        assert (c.treatment_col, c.outcome_col) == ("enrolled", "test_score")
+        assert c.size is None            # the 2 in "2SLS" is not a size
+
+
+@pytest.mark.parametrize("text", [
+    "In a randomized trial, treatment increases score",
+    "Treatment increases score in this RCT",
+    "The randomised treatment raises score",
+    "Treatment was randomly assigned and raises score",
+    "Treatment raises score in an A/B test",
+    "Treatment raises score in a randomized controlled trial",
+    "In an experiment, treatment raises score",
+])
+def test_experiment_hint(P, text):
+    c = parse_claim(text, P["rct"])
+    assert c.design_hint == "experiment" and c.design_hint_phrase
+    assert (c.treatment_col, c.outcome_col) == ("treated", "score")
+    assert (c.treatment_phrase, c.outcome_phrase) == ("treatment", "score")
+    assert not c.needs_confirmation
+    assert any("randomized experiment design" in n and "hint only" in n for n in c.notes)
+
+
+def test_design_clause_keeps_size_and_population(P):
+    c = parse_claim("In a randomized trial, treatment increases score by 15% among women", P["rct"])
+    assert c.design_hint == "experiment" and c.design_hint_phrase == "randomized trial"
+    assert c.size == 15 and c.size_unit == "percent"
+    assert c.population_filter == {"column": "female", "op": "==", "value": 1}
+    c = parse_claim("Treatment raises score in the north in a randomised controlled trial", P["rct"])
+    assert c.population_filter == {"column": "region=north", "op": "==", "value": 1}
+    assert c.outcome_phrase == "score"
+
+
+@pytest.mark.parametrize("text", [
+    "The policy increased sales by 2 units (difference-in-differences)",
+    "Using a diff-in-diff, the policy increased sales",
+    "The policy (DiD) increased sales",
+    "The policy increased sales in an event study",
+    "With a staggered rollout, the policy increased sales",
+    "With a staggered roll-out, the policy increased sales",
+])
+def test_did_hint(P, text):
+    c = parse_claim(text, P["did"])
+    assert c.design_hint == "did"
+    assert (c.treatment_col, c.outcome_col) == ("policy", "sales")
+    assert (c.treatment_phrase, c.outcome_phrase) == ("policy", "sales")
+
+
+def test_did_before_after_compared_and_lowercase_did(P):
+    c = parse_claim("Sales increased before and after the policy compared with stores without it", P["did"])
+    assert c.design_hint == "did" and c.testable      # the comparison group is not another treatment
+    c = parse_claim("What did the policy do: the policy increased sales", P["did"])
+    assert c.design_hint is None and (c.treatment_col, c.outcome_col) == ("policy", "sales")
+
+
+@pytest.mark.parametrize("text", [
+    "The scholarship increases gpa_later, using a regression discontinuity design",
+    "Scholarship increases gpa_later (RDD)",
+    "In an RD design, the scholarship increases gpa_later",
+    "The scholarship increases gpa_later at the cutoff",
+    "The scholarship increases gpa_later for students just above the cutoff",
+    "The scholarship increases gpa_later for those just below the cutoff",
+    "Because of a threshold rule, the scholarship increases gpa_later",
+])
+def test_rd_hint(P, text):
+    c = parse_claim(text, P["rd"])
+    assert c.design_hint == "rd" and c.shape is None
+    assert (c.treatment_col, c.outcome_col) == ("scholarship", "gpa_later")
+    assert c.outcome_phrase == "gpa_later" and c.population_phrase is None
+
+
+def test_threshold_shape_is_not_rd_hint(P):
+    c = parse_claim("The scholarship increases gpa_later only above a threshold", P["rd"])
+    assert c.shape == "threshold" and c.design_hint is None and c.design_hint_phrase is None
+    c = parse_claim("Study hours improve grade, with a threshold effect", P["dose"])
+    assert c.shape == "threshold" and c.design_hint is None
+
+
+@pytest.mark.parametrize("text,phrase", [
+    ("In observational data, the program raises earnings", "observational"),
+    ("The program raises earnings in survey data", "survey data"),
+    ("The program raises earnings without randomization", "without randomization"),
+    ("The program raises earnings, although the program was not randomized", "not randomized"),
+    ("In this non-randomized study, the program raises earnings", "non-randomized"),
+    ("The nonrandomized program raises earnings", "nonrandomized"),
+    ("The program wasn't randomised but raises earnings", "not randomised"),
+])
+def test_observational_hint_and_negation_wins(P, text, phrase):
+    c = parse_claim(text, P["observational"])
+    assert c.design_hint == "observational" and c.design_hint_phrase == phrase
+    assert (c.treatment_col, c.outcome_col) == ("program", "earnings")
+    assert c.direction == "increase" and not c.negated
+    assert not any("randomized experiment design" in n for n in c.notes)
+
+
+def test_no_hint_when_in_doubt(P):
+    c = parse_claim("Treatment raises score in a quasi-experiment", P["rct"])
+    assert c.design_hint is None and c.outcome_phrase == "score"
+    c = parse_claim("The experiment raises score", P["rct"])      # the word is the subject: kept in the text
+    assert c.design_hint == "experiment" and c.treatment_phrase == "experiment"
+
+
+def test_plain_claims_get_no_instrument_or_hint(P):
+    for key, text in [("rct", "Treatment increases score by 15% among women"),
+                      ("observational", "The program raises earnings by at least 2 points"),
+                      ("iv", "The lottery affects test score through enrollment"),
+                      ("did", "The policy increased sales by 2 units"),
+                      ("dose", "Study hours improve grade, with diminishing returns")]:
+        c = parse_claim(text, P[key])
+        assert c.instrument_phrase is None and c.instrument_col is None and c.instrument_score == 0.0
+        assert c.design_hint is None and c.design_hint_phrase is None
+        assert "instrument" not in c.candidates
+        assert not any("instrument" in n or "hint" in n for n in c.notes)
+    c = parse_claim("The lottery affects test score through enrollment", P["iv"])
+    assert (c.treatment_col, c.outcome_col) == ("lottery", "test_score")     # unchanged without an instrument clause
+
+
+def test_instrument_and_design_never_raise(P):
+    for t in ["as an instrument", "IV:", "instrumented by", "using the as an instrument", "(RCT)", "DiD",
+              "not randomized", "instrumenting with", "at the cutoff", "IV IV IV", "randomized"]:
+        c = parse_claim(t, P["iv"])
+        assert isinstance(c, Claim) and not any("could not be fully read" in n for n in c.notes)

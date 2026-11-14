@@ -175,7 +175,12 @@
   "estimand": null,
   "notes": [
    "'low-income' was read as parent_income at or below 40,000 (the bottom third)."
-  ]
+  ],
+  "instrument_phrase": "lottery",
+  "instrument_col": "lottery_offer",
+  "instrument_score": 1.0,
+  "design_hint": "iv",
+  "design_hint_phrase": "using the lottery as an instrument"
  },
  "design": {
   "kind": "observational",
@@ -1647,6 +1652,42 @@
    "error": "We could not fit a dose curve: hours of tutoring is recorded for only 14 students."
   },
   {
+   "key": "design_functional_form",
+   "title": "Does the result depend on the model shape?",
+   "status": "tested_ok",
+   "summary": "Adding squared terms and interactions moves the estimate from 5.9 to 5.6. The conclusion does not depend on a straight-line model.",
+   "metrics": {
+    "estimate_linear": 5.9,
+    "estimate_flexible": 5.6,
+    "reset_p_value": 0.41
+   },
+   "assumptions": [],
+   "charts": [],
+   "warnings": [],
+   "caps_verdict": false,
+   "affects_grade": false,
+   "error": null
+  },
+  {
+   "key": "design_placebo_time",
+   "title": "Placebo: tutoring moved one term earlier",
+   "status": null,
+   "summary": "Pretending tutoring started a term earlier gives an effect of 0.7 (95% interval -1.6 to 3.0).",
+   "metrics": {
+    "placebo_effect": 0.7,
+    "ci95": [
+     -1.6,
+     3.0
+    ]
+   },
+   "assumptions": [],
+   "charts": [],
+   "warnings": [],
+   "caps_verdict": false,
+   "affects_grade": false,
+   "error": null
+  },
+  {
    "key": "literature",
    "title": "Related reading",
    "status": null,
@@ -1747,7 +1788,25 @@
     14.4
    ],
    "claimed_effect_in_outcome_units": 8.75,
-   "weights_max": 14.2
+   "weights_max": 14.2,
+   "ci_levels": {
+    "90": [
+     3.81,
+     7.99
+    ],
+    "95": [
+     3.41,
+     8.39
+    ],
+    "98": [
+     2.95,
+     8.85
+    ],
+    "99": [
+     2.63,
+     9.17
+    ]
+   }
   },
   "charts": []
  },
@@ -1762,8 +1821,8 @@
    },
    {
     "aspect": "size",
-    "label": "rejected",
-    "detail": "15% lies above the 95% interval (6% to 14%)."
+    "label": "not_scored: outside the interval",
+    "detail": "15% lies above the 95% interval (6% to 14%). Reported for information; it does not change the verdict."
    },
    {
     "aspect": "scope",
@@ -1788,7 +1847,7 @@
   ],
   "reasons": [
    "The direction holds across four estimators.",
-   "The claimed size is outside the interval.",
+   "The claimed size is outside the 95% interval (noted, not scored).",
    "Pre-trends failed, so part of the gain may predate tutoring."
   ],
   "caveat": "if there are no hidden common causes of tutoring and test scores"
@@ -1860,15 +1919,18 @@
     },
     {
      "id": "prior_score",
-     "role": "confounder"
+     "role": "confounder",
+     "group": "Adjusted for"
     },
     {
      "id": "parent_income",
-     "role": "confounder"
+     "role": "confounder",
+     "group": "Adjusted for"
     },
     {
      "id": "age",
-     "role": "confounder"
+     "role": "confounder",
+     "group": "Adjusted for"
     },
     {
      "id": "motivation (not measured)",
@@ -1876,11 +1938,17 @@
     },
     {
      "id": "homework_hours",
-     "role": "post_treatment"
+     "role": "post-treatment (excluded)",
+     "group": "Measured after treatment"
     },
     {
      "id": "school_id",
      "role": "cluster"
+    },
+    {
+     "id": "study_group",
+     "role": "possible collider (excluded)",
+     "group": "Possible colliders"
     }
    ],
    "edges": [
@@ -1946,6 +2014,41 @@
      "from": "school_id",
      "to": "tutoring",
      "type": "undirected"
+    },
+    {
+     "from": "tutoring",
+     "to": "study_group",
+     "type": "directed"
+    },
+    {
+     "from": "test_score",
+     "to": "study_group",
+     "type": "directed"
+    }
+   ],
+   "groups": [
+    {
+     "name": "Adjusted for",
+     "members": [
+      "prior_score",
+      "parent_income",
+      "age"
+     ],
+     "note": "Measured before tutoring started; every check and estimate controls for these."
+    },
+    {
+     "name": "Measured after treatment",
+     "members": [
+      "homework_hours"
+     ],
+     "note": "Tutoring may change these, so controlling for them would hide part of its effect. Left out."
+    },
+    {
+     "name": "Possible colliders",
+     "members": [
+      "study_group"
+     ],
+     "note": "May be caused by both tutoring and test scores. Controlling for it would create a false link, so it is not adjusted for."
     }
    ]
   },

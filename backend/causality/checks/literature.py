@@ -137,6 +137,28 @@ def run(prep: Prepared, design: Design, claim: Optional[Claim], online: bool = F
                        error=f"The reading list could not be built ({type(e).__name__}).")
 
 
+_GENERIC = re.compile(r"^(x|y|z|t|d|v|w|c|f|var|variable|col|column|feature|feat|field|unnamed|attr|input|output)"
+                      r"[\s_:.\-]*\d*$", re.I)
+
+
+def generic_name(name) -> bool:
+    """True for headers that carry no meaning (X1, var_3, col2, Unnamed: 0, a single letter)."""
+    n = str(name).strip()
+    return len(n) <= 1 or bool(_GENERIC.match(n)) or n.isdigit()
+
+
+def headers_meaningful(prep) -> bool:
+    """False when the treatment or outcome header, or most headers, are generic placeholders.
+    A literature search on such names would return unrelated papers, so it is not attempted."""
+    if prep is None:
+        return True
+    names = [c.name for c in prep.columns]
+    r = prep.roles
+    if any(c and generic_name(c) for c in (r.treatment, r.outcome)):
+        return False
+    return not names or sum(generic_name(n) for n in names) <= 0.5 * len(names)
+
+
 def _run(prep, design, claim, online) -> Section:
     kind = getattr(design, "kind", None) if design is not None else None
     groups: list[str] = []
@@ -159,6 +181,12 @@ def _run(prep, design, claim, online) -> Section:
     refs = [dict(x) for g in groups for x in REFS[g]]
     warnings: list[str] = []
     metrics: dict = {"online": bool(online), "query": None}
+    if online and not headers_meaningful(prep):
+        online = False
+        metrics["online"] = False
+        metrics["online_skipped"] = "generic column names"
+        warnings.append("The online search was not attempted: the column names (for example X1, X2) carry no "
+                        "meaning, so a search on them would only return unrelated papers.")
     if online:
         q = _query_words(claim)
         metrics["query"] = q or None

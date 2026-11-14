@@ -3,7 +3,9 @@
 `parse_claim(text, prep)` pulls out the treatment and outcome phrases, the claimed
 direction, size, unit, bound, shape, population and hedges, matches the phrases to
 columns with a score in [0, 1], flags claims the data can never test (mediation,
-counterfactual wording, comparison with another treatment) and builds the estimand.
+counterfactual wording, comparison with another treatment) and builds the estimand. It also collects a named
+instrument ("using X as an instrument") and a design hint from the wording
+("randomized", "DiD", "regression discontinuity", ...); the hint is never a decision.
 
 It never raises: problems go into `claim.notes`.
 """
@@ -199,6 +201,106 @@ COMPARISON_RE = re.compile(
     r"\b(?:(?:more|less|better|worse|greater|higher|lower|faster|slower|stronger|weaker|larger|smaller)\s+than"
     r"|compared\s+(?:with|to)|relative\s+to|versus|vs\.?|as\s+opposed\s+to|in\s+contrast\s+to)\s+"
     r"(?!\d|\.\d|" + CONTROL_WORDS + r")[^,;.|]*")
+
+# --------------------------------------------------------------------------- instrument / design wording
+# "IV" and "DiD" only count when written in capitals, so they are marked before lower-casing.
+_IV_MARK, _DID_MARK = "i-v", "d-i-d"
+_INST_WORD = r"(?:instrumental[\s-]variables?|instruments?|i-vs?)"
+_INST_LEAD_RE = re.compile(r"\b(?:using|use|uses|used|with|taking|takes|take|treating|employing|exploiting|via)\s+")
+INST_AS_RE = re.compile(r"\s+as\s+(?:an?\s+|the\s+|our\s+|my\s+|its\s+)?" + _INST_WORD + r"\b")
+INST_ING_RE = re.compile(
+    r"(?:[,;]\s*)?(?:\b(?:when|by|after|while|and)\s+)?\binstrumenting\s+(?:for\s+)?(?P<t>[^,;.|()]+?)\s+"
+    r"(?:with|by|using|on)\s+(?P<x>[^,;.|()]+)")
+INST_ED_RE = re.compile(
+    r"(?:[,;]\s*)?(?:\b(?:with|where|when|and)\s+(?:[\w\-]+\s+){1,3}?(?:(?:is|are|was|were|being)\s+)?"
+    r"|(?<=[.;,])\s*(?:[\w\-]+\s+){1,3}?(?:is|are|was|were)\s+)?"
+    r"\binstrumented\s+(?:by|with|using|on)\s+(?P<x>[^,;.|()]+)")
+INST_COLON_RE = re.compile(
+    r"(?:[,;]\s*)?\b(?:(?:the|our|my)\s+)?" + _INST_WORD + r"\s*(?:(?P<sep>[:=])|\b(?:is|are|was|being)\b)\s*"
+    r"(?P<x>[^,;.|()]+)")
+INST_NOUN_RE = re.compile(
+    r"(?:[,;]\s*)?\b(?:using|with|via|by|use|uses|used|through|from)\s+(?:the|an?|our|my)\s+"
+    r"(?P<x>[\w\-]+(?:\s+[\w\-]+){0,2}?)\s+" + _INST_WORD + r"\b")
+_INST_STOP_RE = re.compile(
+    r"\s(?:among|amongst|for|in|within|when|if|because|while|but|and|so|which|that|as|to|on|does|do|did|is|are|"
+    r"was|were|may|might|could|can|cannot|will|would|should|has|have|had|not)\s")
+
+_AUX_START = re.compile(
+    r"(?:does|do|did|is|are|was|were|may|might|could|can|cannot|will|would|should|must|has|have|had|tends?|"
+    r"appears?|seems?|not|never|likely|probably|possibly|significantly|substantially|strongly|greatly|directly|"
+    r"causally|really|actually|also|generally|often|usually|typically)\b")
+
+_RD_JUST = (r"(?:just|right|barely|narrowly|immediately)\s+(?:above|below|over|under|past)\s+(?:the|a)\s+"
+            r"(?:\w+\s+)?(?:cut-?off|threshold)\b")
+_RD_AT = r"at\s+the\s+(?:\w+\s+)?cut-?off\b"
+_RD_RULE = r"(?:threshold|cut-?off)\s+rule\b"
+NEG_DESIGN_RE = re.compile(
+    r"\b(?:not|never)\s+(?:been\s+|an?\s+|truly\s+|actually\s+)*(?:randomi[sz]ed|randomly\s+assigned|"
+    r"experiments?|experimental|rcts?)\b"
+    r"|\bnon[\s-]?randomi[sz]ed\b|\bnon[\s-]?experimental\b|\bno\s+randomi[sz]ation\b"
+    r"|\bwithout\s+(?:an?\s+|any\s+)?(?:randomi[sz]ation|random\s+assignment|experiments?|rcts?)\b"
+    r"|\b(?:rather\s+than|instead\s+of)\s+(?:an?\s+)?(?:randomi[sz]ed\s+)?(?:controlled\s+)?(?:experiment|trial|rct)\b")
+BLOCK_DESIGN_RE = re.compile(r"\bquasi[\s-]experiment\w*|\bnatural\s+experiment\w*")
+HINT_TABLE: list[tuple[str, re.Pattern]] = [
+    ("experiment", re.compile(
+        r"\b(?:randomi[sz]ed\s+controlled\s+trials?|randomi[sz]ed(?:\s+(?:trial|experiment|study)s?)?|"
+        r"randomly\s+assign(?:ed|s|ing)?|random\s+assignment|randomi[sz]ation|rcts?|a/b\s+test(?:s|ing)?|"
+        r"experiments?)\b")),
+    ("did", re.compile(
+        r"\b(?:difference[\s-]in[\s-]differences?|diff(?:erence)?s?[\s-]in[\s-]diffs?|d-i-d|"
+        r"staggered\s+(?:roll[\s-]?out|adoption)|event[\s-]stud(?:y|ies))\b"
+        r"|\bbefore\s+and\s+after\b[^.;|]*?\bcompared\s+(?:with|to)\b")),
+    ("iv", re.compile(
+        r"\b(?:instrumental[\s-]variables?|instrument(?:s|ed|ing)?|i-vs?|2sls|tsls|"
+        r"two[\s-]stage\s+least\s+squares)\b")),
+    ("rd", re.compile(
+        r"\bregression[\s-]discontinuity(?:\s+designs?)?\b|\brdd\b|\brd\s+(?:design|estimate|analysis|approach)s?\b"
+        r"|\bdiscontinuity\s+designs?\b|\b" + _RD_JUST + r"|\b" + _RD_AT + r"|\b" + _RD_RULE)),
+    ("observational", re.compile(r"\b(?:observational|survey\s+data)\b")),
+]
+DESIGN_LABEL = {"experiment": "a randomized experiment", "did": "a difference-in-differences",
+                "iv": "an instrumental-variable", "rd": "a regression discontinuity",
+                "observational": "an observational"}
+
+# design clauses taken out of the text before the treatment / outcome are read
+_D_ART = r"(?:an?|the|this|that|these|our|my|their|its|some)"
+_D_ADJ = (r"(?:(?:large|small|big|recent|new|simple|standard|classic|sharp|fuzzy|field|lab|online|controlled|"
+          r"double-blind|blinded|blind|clinical|pilot|cluster|clustered|stratified|careful|proper|true|pure|"
+          r"valid|formal|single|multi-site|well-designed|well-run)\s+){0,2}")
+_D_NOUN = (r"(?:\s+(?:designs?|trials?|experiments?|study|studies|approach|analysis|analyses|estimates?|"
+           r"estimator|estimation|regressions?|models?|methods?|framework|setup|set-up|setting|data|dataset|"
+           r"sample|evidence|strategy|specification|comparison)\b)*")
+_D_STRONG = (r"(?:randomi[sz]ed\s+controlled\s+trials?|rcts?|a/b\s+test(?:s|ing)?|"
+             r"difference[\s-]in[\s-]differences?|diff(?:erence)?s?[\s-]in[\s-]diffs?|d-i-d|event[\s-]stud(?:y|ies)|"
+             r"instrumental[\s-]variables?|i-vs?|2sls|tsls|two[\s-]stage\s+least\s+squares|"
+             r"regression[\s-]discontinuity|rdd|rd(?=\s+(?:design|estimate|analysis|approach))|"
+             r"discontinuity(?=\s+design))")
+_D_WEAK = (r"(?:non[\s-]?randomi[sz]ed|non[\s-]?experimental|quasi[\s-]experiment(?:al|s)?|natural\s+experiments?|"
+           r"randomi[sz]ed|randomly\s+assigned|randomi[sz]ation|random\s+assignment|experiments?|instruments?|"
+           r"staggered\s+(?:roll[\s-]?out|adoption)|observational|survey\s+data)")
+_D_PREP = (r"(?:in|using|with|from|via|under|through|within|during|based\s+on|according\s+to|without|"
+           r"by(?=\s+(?:randomi[sz]ation|random\s+assignment)))")
+_D_PREP_STRONG = r"(?:in|using|with|from|via|under|through|within|during|based\s+on|according\s+to|by|per)"
+D_PREP_LED_RE = re.compile(r"[,;]?\s*\b" + _D_PREP + r"\s+(?:" + _D_ART + r"\s+)?" + _D_ADJ +
+                           r"(?:" + _D_STRONG + r"|" + _D_WEAK + r")\b" + _D_NOUN)
+D_STRONG_RE = re.compile(r"[,;]?\s*(?:\b" + _D_PREP_STRONG + r"\s+)?(?:\b" + _D_ART + r"\s+)?" + _D_ADJ +
+                         r"\b" + _D_STRONG + r"\b" + _D_NOUN)
+D_NEG_CLAUSE_RE = re.compile(
+    r"[,;]?\s*(?:\b(?:although|though|but|and|which|that|where|since|because|while)\s+)?"
+    r"(?:\b(?:the\s+)?[\w\-]+\s+)?\b(?:is|was|were|are|has|had|have)\s+(?:not|never)\s+(?:been\s+)?"
+    r"(?:truly\s+|actually\s+)?(?:randomi[sz]ed|randomly\s+assigned)\b(?:\s+to\s+[\w\-]+)?")
+_D_NUM = r"(?:\s+(?:of|=)\s+-?\d+(?:\.\d+)?)?"
+D_RD_RES = [
+    re.compile(r"[,;]?\s*(?:\b(?:for|among|amongst)\s+[\w\-]+\s+(?:(?:who|that)\s+(?:\w+\s+)?)?)?\b" + _RD_JUST + _D_NUM),
+    re.compile(r"[,;]?\s*\b" + _RD_AT + _D_NUM),
+    re.compile(r"[,;]?\s*(?:\b(?:" + _D_PREP_STRONG + r"|because\s+of|due\s+to)\s+)?(?:\b" + _D_ART +
+               r"\s+(?:(?!threshold|cut)[\w\-]+\s+)?)?\b" + _RD_RULE),
+]
+D_ADJ_RE = re.compile(r"(?:\b(?:is|are|was|were|been|being)\s+)?\b(?:randomly\s+assigned(?:\s+to)?|randomi[sz]ed|"
+                      r"non[\s-]?randomi[sz]ed|non[\s-]?experimental)\b(?:\s+and\b)?")
+DID_COMPARE_RE = re.compile(r"\bbefore\s+and\s+after\b[^.;|]*?\bcompared\s+(?:with|to)\b")
+ANY_DESIGN_RE = re.compile("|".join([NEG_DESIGN_RE.pattern, BLOCK_DESIGN_RE.pattern] +
+                                    [rx.pattern for _k, rx in HINT_TABLE]))
 
 # --------------------------------------------------------------------------- population
 POP_WORDS = (r"(?:people|persons|adults|individuals|patients|participants|men|women|students|workers|"
@@ -442,6 +544,213 @@ def _normalize(text: str) -> str:
     return s
 
 
+# --------------------------------------------------------------------------- instrument / design helpers
+def _mark_caps(raw: str) -> str:
+    """Mark the capital-letter abbreviations IV and DiD so they survive lower-casing."""
+    if raw.upper() == raw:          # all capitals: the case carries no information
+        return raw
+    raw = re.sub(r"\bDiD\b|\bDID\b", _DID_MARK, raw)
+    return re.sub(r"\bIV(s?)\b", _IV_MARK + r"\1", raw)
+
+
+def _unmark(p: Optional[str]) -> Optional[str]:
+    if not p:
+        return p
+    p = re.sub(r"\bd-i-d\b", "DiD", p)
+    p = re.sub(r"\bi-v(s?)\b", r"IV\1", p)
+    p = re.sub(r"\b(rct|rdd|rd|2sls|tsls)\b", lambda m: m.group(1).upper(), p)
+    p = p.replace("a/b test", "A/B test")
+    return re.sub(r"\s+", " ", p).strip(" ,;.:|()")
+
+
+def _follows_verb(rest: str) -> bool:
+    r = rest.lstrip(" ,;")
+    if not r:
+        return False
+    return bool(_AUX_START.match(r) or NO_EFFECT_RE.match(r) or any(rx.match(r) for rx, _d in VERB_TABLE))
+
+
+def _first_verb(text: str) -> Optional[int]:
+    starts = [m.start() for m in [NO_EFFECT_RE.search(text)] + [rx.search(text) for rx, _d in VERB_TABLE] if m]
+    return min(starts) if starts else None
+
+
+def _drop(work: str, a: int, b: int) -> str:
+    """Take work[a:b] out. A clause sitting between the subject and its verb leaves a plain
+    space (so the subject stays attached to the verb); anything else leaves a break."""
+    before, after = work[:a], work[b:]
+    if before.strip(" ,;|(") and not before.rstrip().endswith("|") and _follows_verb(after):
+        return before.rstrip(" ,;") + " " + after.lstrip(" ,;")
+    return before + " | " + after
+
+
+def _top_score(prep: Prepared, phrase: str) -> float:
+    r = _rank_columns(prep, phrase)
+    return r[0][1] if r else 0.0
+
+
+def _pick_prefix(prep: Prepared, cand: str) -> int:
+    """How many characters at the start of `cand` are the instrument's name."""
+    v = _first_verb(cand)
+    if v is not None:
+        cand = cand[:v]
+    st = _INST_STOP_RE.search(cand + " ")
+    if st:
+        cand = cand[: st.start()]
+    toks = list(re.finditer(r"[\w\-']+", cand))
+    if not toks:
+        return 0
+    best_n, best_s = 0, 0.0
+    for n in range(1, min(len(toks), 5) + 1):
+        sc = _top_score(prep, cand[: toks[n - 1].end()])
+        if sc > best_s + 1e-9:
+            best_n, best_s = n, sc
+    if best_s >= 0.3:
+        return toks[best_n - 1].end()
+    return toks[min(len(toks), 4) - 1].end()
+
+
+def _pick_suffix(prep: Prepared, seg: str) -> int:
+    """Offset in `seg` where the instrument's name starts (it runs to the end of `seg`)."""
+    toks = list(re.finditer(r"[\w\-']+", seg))
+    if not toks:
+        return len(seg)
+    best_n, best_s = 0, 0.0
+    for n in range(1, min(len(toks), 4) + 1):
+        sc = _top_score(prep, seg[toks[-n].start():])
+        if sc > best_s + 1e-9:
+            best_n, best_s = n, sc
+    if best_s < 0.3:
+        best_n = len(toks) if len(toks) <= 4 else 1
+    i = len(toks) - best_n
+    if i > 0 and toks[i - 1].group(0) in ("the", "a", "an", "our", "my"):
+        i -= 1
+    return toks[i].start()
+
+
+def _find_instrument(prep: Prepared, work: str) -> Optional[tuple[int, int, str]]:
+    """(start, end, name) of the first clause that names an instrument, or None."""
+    for rx in (INST_ING_RE, INST_ED_RE):
+        m = rx.search(work)
+        if m:
+            n = _pick_prefix(prep, m.group("x"))
+            if n:
+                return m.start(), m.start("x") + n, m.group("x")[:n]
+    for m in INST_COLON_RE.finditer(work):
+        n = _pick_prefix(prep, m.group("x"))
+        if not n:
+            continue
+        x = m.group("x")[:n]
+        if m.group("sep") or _top_score(prep, x) >= 0.3:   # "the instrument is weak" names nothing
+            return m.start(), m.start("x") + n, x
+    k = INST_AS_RE.search(work)
+    if k:
+        seg_start = max(work.rfind(ch, 0, k.start()) for ch in ",;.|()") + 1
+        seg = work[seg_start: k.start()]
+        leads = list(_INST_LEAD_RE.finditer(seg))
+        if leads:
+            a, x = seg_start + leads[-1].start(), seg[leads[-1].end():]
+        else:
+            off = _pick_suffix(prep, seg)
+            a, x = seg_start + off, seg[off:]
+        if x.strip():
+            b = k.end()
+            tail = re.match(r"\s+for\s+(?P<t>[^,;.|()]+)", work[b:])     # "... as an instrument for enrollment"
+            if tail and not re.match(r"(?:the\s+)?(?:" + POP_WORDS + r"|women|men|girls|boys)\b", tail.group("t")):
+                n = _pick_prefix(prep, tail.group("t"))
+                if n:
+                    b += tail.start("t") + n
+            return a, b, x
+    for m in INST_NOUN_RE.finditer(work):
+        if _top_score(prep, m.group("x")) >= 0.3:
+            return m.start(), m.end(), m.group("x")
+    return None
+
+
+def _extract_instrument(claim: Claim, prep: Prepared, work: str) -> tuple[str, Optional[str]]:
+    """Collect a named instrument and cut its clause out. Returns (text, the clause)."""
+    hit = _find_instrument(prep, work)
+    if not hit:
+        return work, None
+    a, b, x = hit
+    phrase = _unmark(_clean_phrase(x, trailing=False))
+    if not phrase:
+        return work, None
+    clause = _unmark(work[a:b])
+    claim.instrument_phrase = phrase
+    ranked = _rank_columns(prep, phrase)
+    claim.candidates["instrument"] = [(_df_name(prep, c), sc) for c, sc in ranked[:3]]
+    if ranked and ranked[0][1] >= 0.3:
+        claim.instrument_col = _df_name(prep, ranked[0][0])
+        claim.instrument_score = float(ranked[0][1])
+        claim.notes.append(f"The claim names an instrument: '{phrase}' (\"{clause}\"), matched to the column "
+                           f"'{claim.instrument_col}'.")
+    else:
+        claim.notes.append(f"The claim names an instrument: '{phrase}' (\"{clause}\"), but no column matches it; "
+                           "please pick it.")
+    work = _drop(work, a, b)
+    work = re.sub(r"\(\s*(?:\|\s*)*\)", " ", work)
+    return work, clause
+
+
+def _design_hint(claim: Claim, s: str, inst_clause: Optional[str]) -> None:
+    """Read the study design named in the wording. A hint only; when in doubt, none."""
+    negs = list(NEG_DESIGN_RE.finditer(s))
+    blocked = [m.span() for m in negs] + [m.span() for m in BLOCK_DESIGN_RE.finditer(s)]
+    hits: list[tuple[int, str, str]] = []
+    for kind, rx in HINT_TABLE:
+        for m in rx.finditer(s):
+            if kind == "experiment" and any(m.start() < e and st < m.end() for st, e in blocked):
+                continue
+            hits.append((m.start(), kind, m.group(0)))
+    hits.sort(key=lambda h: h[0])
+    named = [h for h in hits if h[1] != "observational"]
+    plain = [h for h in hits if h[1] == "observational"]
+    if claim.instrument_phrase:
+        kind, phrase = "iv", inst_clause or claim.instrument_phrase
+    elif named:
+        _pos, kind, phrase = named[0]
+    elif negs:
+        kind, phrase = "observational", negs[0].group(0)
+    elif plain:
+        _pos, kind, phrase = plain[0]
+    else:
+        return
+    claim.design_hint = kind
+    claim.design_hint_phrase = _unmark(phrase)
+    kinds = {h[1] for h in hits} | ({"observational"} if negs else set()) | {kind}
+    if len(kinds) > 1:
+        claim.notes.append("More than one study design is mentioned in the wording; "
+                           f"'{claim.design_hint_phrase}' is used for the hint.")
+    claim.notes.append(f"The wording suggests {DESIGN_LABEL[kind]} design (\"{claim.design_hint_phrase}\"); "
+                       "this is used as a hint only.")
+
+
+def _strip_design(work: str, did_compare: bool) -> str:
+    """Cut pure design clauses ('in a randomized trial', '(DiD)') so they do not leak into phrases."""
+    work = re.sub(r"\([^()]*\)", lambda m: " " if ANY_DESIGN_RE.search(m.group(0)) else m.group(0), work)
+    # "X was not randomized but raises Y": keep the subject X with its verb
+    m = re.search(r"\b(?:is|was|were|are|has|had|have)\s+(?:not|never)\s+(?:been\s+)?(?:truly\s+|actually\s+)?"
+                  r"(?:randomi[sz]ed|randomly\s+assigned)\s*,?\s+(?:but|and|yet)\s+", work)
+    if m and _follows_verb(work[m.end():]):
+        work = work[: m.start()] + work[m.end():]
+    for rx in [D_NEG_CLAUSE_RE, D_PREP_LED_RE, D_STRONG_RE] + D_RD_RES:
+        for _i in range(8):
+            m = rx.search(work)
+            if not m:
+                break
+            work = _drop(work, m.start(), m.end())
+    work = D_ADJ_RE.sub(" ", work)
+    for _i in range(4):
+        m = NEG_DESIGN_RE.search(work)
+        if not m:
+            break
+        work = _drop(work, m.start(), m.end())
+    if did_compare:      # "before and after ... compared with X": X is the comparison group, not another treatment
+        work = re.sub(r"[,;]?\s*\bcompared\s+(?:with|to)\b[^,;.|]*", " | ", work)
+    return work
+
+
 # --------------------------------------------------------------------------- main
 def parse_claim(text: str, prep: Prepared) -> Claim:
     raw = text if isinstance(text, str) else ("" if text is None else str(text))
@@ -462,8 +771,13 @@ def parse_claim(text: str, prep: Prepared) -> Claim:
 
 
 def _parse(claim: Claim, prep: Prepared) -> None:
-    s = _normalize(claim.raw)
+    s = _normalize(_mark_caps(claim.raw))
     work = s
+
+    # instrument and design wording (taken out before anything else is read) ------
+    work, inst_clause = _extract_instrument(claim, prep, work)
+    _design_hint(claim, s, inst_clause)
+    work = _strip_design(work, bool(DID_COMPARE_RE.search(s)))
 
     # hedges --------------------------------------------------------------------
     for h in HEDGES:
@@ -748,7 +1062,7 @@ def _fallback_mentions(claim: Claim, prep: Prepared, work: str) -> None:
             continue
         ctoks = _col_tokens(info.name)
         positions = [i for i, t in enumerate(toks) if any(_tok_sim(t, c) >= 0.9 for c in ctoks)]
-        if positions:
+        if positions and claim.instrument_col not in (info.name, _df_name(prep, info.name)):
             hits.append((min(positions), info.name))
     hits.sort()
     if hits:
@@ -761,6 +1075,9 @@ def _fallback_mentions(claim: Claim, prep: Prepared, work: str) -> None:
 def _match_columns(claim: Claim, prep: Prepared) -> None:
     tr = _rank_columns(prep, claim.treatment_phrase)
     orank = _rank_columns(prep, claim.outcome_phrase)
+    if claim.instrument_col:     # the instrument is never the treatment or the outcome
+        tr = [(c, sc) for c, sc in tr if claim.instrument_col not in (c, _df_name(prep, c))]
+        orank = [(c, sc) for c, sc in orank if claim.instrument_col not in (c, _df_name(prep, c))]
     claim.candidates["treatment"] = [(_df_name(prep, c), s) for c, s in tr[:3]]
     claim.candidates["outcome"] = [(_df_name(prep, c), s) for c, s in orank[:3]]
     claim.candidates.setdefault("population", [])

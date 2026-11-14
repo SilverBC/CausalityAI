@@ -154,3 +154,90 @@ def test_never_raises_on_garbage():
     design = data.resolve_design(prep, "iv")   # no instrument
     e = estimate(prep, design, None)
     assert e.refused and e.refusal_reason
+
+
+# ------------------------------------------------------------------ intervals at four levels
+def check_levels(e):
+    assert not e.refused
+    lv = e.extra["ci_levels"]
+    assert set(lv) == {"90", "95", "98", "99"}
+    assert list(lv["90"]) == list(e.ci90) and list(lv["95"]) == list(e.ci95)
+    for a, b in (("90", "95"), ("95", "98"), ("98", "99")):
+        assert lv[b][0] < lv[a][0] < lv[a][1] < lv[b][1]
+    for v in lv.values():
+        assert len(v) == 2 and all(math.isfinite(x) for x in v)
+    return lv
+
+
+def set_contains(outer, inner):
+    return all(any(lo <= a and b <= hi for lo, hi in outer) for a, b in inner)
+
+
+def test_ci_levels_rct():
+    df, _ = sim.rct()
+    e = run(df, dict(treatment="treated", outcome="score"), "experiment")
+    lv = check_levels(e)
+    # normal reference: half-widths scale with the normal quantiles
+    assert (lv["99"][1] - lv["99"][0]) / (lv["95"][1] - lv["95"][0]) == pytest.approx(2.5758293 / 1.9599640, rel=1e-6)
+    assert (lv["98"][0] + lv["98"][1]) / 2 == pytest.approx(e.estimate)
+
+
+def test_ci_levels_clustered_rct():
+    from scipy import stats
+    df, _ = sim.cluster_saturation()
+    e = run(df, dict(treatment="treated", outcome="consumption", cluster="village", saturation="saturation"),
+            "experiment")
+    lv = check_levels(e)
+    # t reference with the cluster degrees of freedom
+    assert (lv["99"][1] - lv["99"][0]) / 2 == pytest.approx(stats.t.ppf(0.995, e.extra["t_df"]) * e.se, rel=1e-9)
+
+
+def test_ci_levels_observational():
+    df, _ = sim.observational()
+    check_levels(run(df, dict(treatment="program", outcome="earnings"), "observational"))
+
+
+def test_ci_levels_did():
+    df, _ = sim.did_staggered()
+    check_levels(run(df, dict(treatment="policy", outcome="sales", unit="state", time="year"), "did"))
+
+
+def test_ci_levels_iv_and_ar_sets():
+    df, _ = sim.iv(seed=1)
+    e = run(df, dict(treatment="enrolled", outcome="test_score", instrument="lottery"), "iv")
+    check_levels(e)
+    ar95, ar98, ar99 = e.extra["ar_ci95"], e.extra["ar_ci98"], e.extra["ar_ci99"]
+    assert ar98 and ar99
+    assert set_contains(ar98, ar95) and set_contains(ar99, ar98) and set_contains(ar99, ar95)
+    assert e.extra["ar_ci95_text"]
+
+
+def test_ar_sets_weak_instrument_nested():
+    df, _ = sim.iv(n=400, strength=0.02, seed=3)
+    e = run(df, dict(treatment="enrolled", outcome="test_score", instrument="lottery"), "iv")
+    ar95, ar98, ar99 = e.extra["ar_ci95"], e.extra["ar_ci98"], e.extra["ar_ci99"]
+    assert set_contains(ar98, ar95) and set_contains(ar99, ar98)
+
+
+def test_ci_levels_rd():
+    df, _ = sim.rd()
+    e = run(df, dict(treatment="scholarship", outcome="gpa_later", running="exam_score", cutoff=50.0), "rd")
+    lv = check_levels(e)
+    # robust bias-corrected: centred on the bias-corrected estimate, not the conventional point
+    for v in lv.values():
+        assert (v[0] + v[1]) / 2 == pytest.approx(e.extra["bias_corrected_estimate"])
+
+
+def test_ci_levels_dose():
+    df, _ = sim.dose()
+    check_levels(run(df, dict(treatment="study_hours", outcome="grade"), "observational"))
+
+
+def test_refused_has_no_ci_levels():
+    df, _ = sim.rct(n=200)
+    df["score"] = 5.0
+    e = run(df, dict(treatment="treated", outcome="score"), "experiment")
+    assert e.refused and "ci_levels" not in e.extra
+    df, _ = sim.did_staggered()
+    e = run(df, dict(treatment="policy", outcome="sales"), "did")
+    assert e.refused and "ci_levels" not in e.extra

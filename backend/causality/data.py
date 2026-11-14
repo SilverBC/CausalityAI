@@ -404,7 +404,12 @@ def _sharp_at(x: pd.Series, t: pd.Series, c: float) -> bool:
     if len(w) < 20:
         return False
     side = (w["x"] >= c).astype(float)
-    return max(np.mean(side == w["t"]), np.mean(side != w["t"])) >= 0.8
+    if side.nunique() < 2:
+        return False
+    # the treated share must really jump at the line (a rare treatment agrees with
+    # "nobody treated" almost everywhere without any cutoff being involved)
+    jump = abs(w.loc[side == 1, "t"].mean() - w.loc[side == 0, "t"].mean())
+    return jump >= 0.5 and max(np.mean(side == w["t"]), np.mean(side != w["t"])) >= 0.8
 
 
 def find_cutoff(x: pd.Series, t: pd.Series) -> tuple[Optional[float], float]:
@@ -432,7 +437,7 @@ def find_cutoff(x: pd.Series, t: pd.Series) -> tuple[Optional[float], float]:
     i = int(np.argmax(acc))
     return float(xs[ks[i]]), float(acc[i])
 
-def infer_design(prep: Prepared) -> Design:
+def infer_design(prep: Prepared, design_hint: Optional[str] = None) -> Design:
     """Data first, column names only as whole-word hints. Never returns 'experiment'
     unless the user said treatment was randomized."""
     r, df = prep.roles, prep.df
@@ -514,6 +519,17 @@ def infer_design(prep: Prepared) -> Design:
                                "(a possible instrument).")
                 proposed["iv"] = {"instrument": r.instrument or best_iv[0]}
 
+    # the user's own wording is a hint: it can tip a design the data already supports,
+    # never create one the data do not show (and never an experiment)
+    if design_hint in ("did", "iv", "rd") and scores.get(design_hint, 0) > 0:
+        scores[design_hint] = min(scores[design_hint] + 0.25, 0.97)
+        reasons.append(f"Your wording points to {_design_name(design_hint)}, and the data fit it.")
+    elif design_hint in ("did", "iv", "rd"):
+        reasons.append(f"Your wording points to {_design_name(design_hint)}, but the data show no such structure "
+                       "(declare the roles if it is there).")
+    elif design_hint == "observational" and not r.randomized:
+        scores["observational"] = max(scores["observational"], 0.98)
+        reasons.append("Your wording says the data are observational.")
     ranked = sorted(scores.items(), key=lambda kv: -kv[1])
     kind, top = ranked[0]
     # roles found by inference are applied only for the design that wins
@@ -566,7 +582,7 @@ def _best_time(prep: Prepared, cols: list[str], unit: Optional[str]) -> Optional
         if info.kind not in ("count", "continuous", "datetime", "binary"):
             continue
         k = prep.raw[c].nunique()
-        if k < 2 or k > 60:
+        if k < 2 or k > 500:
             continue
         per_unit = prep.raw.groupby(unit)[c].nunique().mean()
         if per_unit < 2:
@@ -611,7 +627,7 @@ def _max_abs_smd(df: pd.DataFrame, group: str, cols: list[str]) -> float:
     return m
 
 
-def resolve_design(prep: Prepared, declared: Optional[str]) -> Design:
+def resolve_design(prep: Prepared, declared: Optional[str], hint: Optional[str] = None) -> Design:
     """Use the declared design if given (checked against the data), else infer it."""
     if declared:
         declared = declared.lower().strip()
@@ -627,7 +643,7 @@ def resolve_design(prep: Prepared, declared: Optional[str]) -> Design:
             prep.roles.cutoff, _ = find_cutoff(prep.df[prep.roles.running], prep.df[prep.roles.treatment])
         d = Design(kind=declared, declared=True, reasons=["You declared this design."])
     else:
-        d = infer_design(prep)
+        d = infer_design(prep, hint)
     d.conflicts = check_declarations(prep, d.kind)
     finalize_adjustment_set(prep)
     return d

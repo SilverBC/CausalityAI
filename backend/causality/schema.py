@@ -186,6 +186,11 @@ class Claim:
     population_filter: Optional[dict] = None # {"column": str, "op": "==|>=|<=|>|<", "value": Any}
     population_score: float = 0.0
     hedges: list[str] = field(default_factory=list)
+    instrument_phrase: Optional[str] = None  # "using the lottery as an instrument"
+    instrument_col: Optional[str] = None
+    instrument_score: float = 0.0
+    design_hint: Optional[str] = None        # experiment | did | iv | rd | observational, from the wording
+    design_hint_phrase: Optional[str] = None # the words that gave the hint
     testable: bool = True
     untestable_reason: Optional[str] = None  # mediation | counterfactual | comparison with another treatment
     estimand: Optional[Estimand] = None
@@ -208,6 +213,7 @@ class Estimate:
     refused: bool = False
     refusal_reason: Optional[str] = None
     comparisons: list[dict] = field(default_factory=list)  # other estimators: {"method","estimate","ci95","note"}
+    # extra["ci_levels"] = {"90": [lo, hi], "95": [lo, hi], "98": [lo, hi], "99": [lo, hi]}
     extra: dict = field(default_factory=dict)              # e.g. AR interval, first-stage F, dose curve
     charts: list[Chart] = field(default_factory=list)
 

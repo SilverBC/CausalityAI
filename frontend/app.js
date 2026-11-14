@@ -57,6 +57,21 @@ function defineRender(Charts) {
     if (l === "no evidence") return "v-none";
     return "v-neutral";
   }
+  // intervals: [lo, hi] with finite ends
+  function pair(t) { return Array.isArray(t) && t.length >= 2 && num(t[0]) && num(t[1]) ? [t[0], t[1]] : null; }
+  // Anderson-Rubin sets: one [lo, hi] or a list of them; a null end means unbounded
+  function openSet(v) {
+    if (!Array.isArray(v)) return "";
+    var parts = v.length && Array.isArray(v[0]) ? v : (v.length >= 2 ? [v] : []);
+    parts = parts.filter(function (p) { return Array.isArray(p) && p.length >= 2; });
+    if (!parts.length) return "empty (no value fits)";
+    return parts.map(function (p) {
+      if (!num(p[0]) && !num(p[1])) return "unbounded (any value fits)";
+      return (num(p[0]) ? "[" + fmt(p[0]) : "(−∞") + ", " + (num(p[1]) ? fmt(p[1]) + "]" : "∞)");
+    }).join(" or ");
+  }
+  function isNotScored(label) { return /^not[_ ]scored/i.test(String(label || "")); }
+
   function subClass(label) {
     var l = String(label || "").toLowerCase();
     if (l === "supported") return "v-ok";
@@ -156,7 +171,18 @@ function defineRender(Charts) {
       '</ul><ul class="node-legend">' +
       '<li><span class="swatch sw-t"></span>treatment</li><li><span class="swatch sw-o"></span>outcome</li>' +
       '<li><span class="swatch sw-c"></span>other measured column</li><li><span class="swatch sw-i"></span>instrument / running variable</li>' +
-      '<li><span class="swatch sw-p"></span>measured after treatment</li><li><span class="swatch sw-h"></span>hidden (not in the data)</li></ul></div>';
+      '<li><span class="swatch sw-p"></span>measured after treatment</li><li><span class="swatch sw-k"></span>possible collider (not adjusted for)</li>' +
+      '<li><span class="swatch sw-h"></span>hidden (not in the data)</li></ul>' + dagGroups(chart) + "</div>";
+  }
+
+  function dagGroups(chart) {
+    var groups = arr(chart && chart.data && chart.data.groups).filter(function (g) { return g && typeof g === "object" && g.name; });
+    if (!groups.length) return "";
+    return '<ul class="dag-groups">' + groups.map(function (g) {
+      var members = arr(g.members);
+      return "<li><strong>" + esc(g.name) + "</strong>" + (members.length ? ' <span class="muted">(' + esc(members.join(", ")) + ")</span>" : "") +
+        (g.note ? ": " + esc(g.note) : "") + "</li>";
+    }).join("") + "</ul>";
   }
 
   function assumptionItem(a) {
@@ -177,7 +203,7 @@ function defineRender(Charts) {
     if (!sec) return "";
     var tags = "";
     if (sec.caps_verdict) tags += '<span class="tag tag-cap" title="Because of this check, the verdict cannot be better than Inconclusive">Caps the verdict</span>';
-    if (sec.affects_grade === false) tags += '<span class="tag">Does not affect the grade</span>';
+    if (sec.affects_grade === false) tags += '<span class="tag tag-nograde">does not affect the grade</span>';
     var metrics = sec.metrics && typeof sec.metrics === "object" ? sec.metrics : {};
     var big = {}, small = {};
     Object.keys(metrics).forEach(function (k) {
@@ -252,6 +278,13 @@ function defineRender(Charts) {
     var subs = arr(report.verdict && report.verdict.sub).filter(function (s) { return s && typeof s === "object"; });
     if (!subs.length) return "";
     return '<div class="sub-verdicts">' + subs.map(function (s) {
+      // size is reported as a note, never as a pass or a fail
+      if (isNotScored(s.label) || String(s.aspect).toLowerCase() === "size") {
+        var rest = String(s.label || "").replace(/^not[_ ]scored\s*:?\s*/i, "");
+        return '<div class="sub-card sub-note"><div class="sub-aspect">' + esc(human(s.aspect)) + " (not scored)</div>" +
+          '<div class="sub-label">' + esc(rest ? human(rest) : "Note") + "</div>" +
+          (s.detail ? '<div class="sub-detail">' + esc(s.detail) + "</div>" : "") + "</div>";
+      }
       return '<div class="sub-card ' + subClass(s.label) + '"><div class="sub-aspect">' + esc(human(s.aspect)) + "</div>" +
         '<div class="sub-label">' + esc(human(s.label || "")) + "</div>" +
         (s.detail ? '<div class="sub-detail">' + esc(s.detail) + "</div>" : "") + "</div>";
@@ -282,13 +315,21 @@ function defineRender(Charts) {
     if (!e) return "";
     var rows = [];
     var add = function (k, v) { rows.push('<tr><th scope="row">' + esc(k) + "</th><td>" + v + "</td></tr>"); };
+    var extra = e.extra && typeof e.extra === "object" ? e.extra : {};
+    var lv = extra.ci_levels && typeof extra.ci_levels === "object" ? extra.ci_levels : {};
+    var levels = [];
+    ["90", "95", "98", "99"].forEach(function (L) {
+      var p = pair(lv[L]) || (L === "90" ? pair(e.ci90) : L === "95" ? pair(e.ci95) : null);
+      if (p) levels.push({ level: L, lo: p[0], hi: p[1], excl: p[0] > 0 || p[1] < 0 });
+    });
+    var c95 = null;
+    levels.forEach(function (x) { if (x.level === "95") c95 = [x.lo, x.hi]; });
     add("Method", esc(e.method));
     add("Target", esc(e.target));
     add("Who it applies to", esc(SCOPE[e.scope] || e.scope));
     if (!e.refused) {
       add("Estimate", '<strong class="big-num">' + fmt(e.estimate) + "</strong>" + (num(e.se) ? ' <span class="muted">(standard error ' + fmt(e.se) + ")</span>" : ""));
-      add("90% interval", ci(e.ci90));
-      add("95% interval", ci(e.ci95));
+      add("95% interval", c95 ? '<strong>95% CI ' + fmt(c95[0]) + " to " + fmt(c95[1]) + "</strong>" : "–");
       if (num(e.p_value)) add("p-value", fmt(e.p_value));
     }
     add("Rows used", fmt(e.n));
@@ -297,22 +338,45 @@ function defineRender(Charts) {
 
     var frows = [];
     if (!e.refused && num(e.estimate)) {
-      frows.push({ label: e.method || "main estimate", est: e.estimate, lo: e.ci95 ? e.ci95[0] : null, hi: e.ci95 ? e.ci95[1] : null });
+      frows.push({ label: e.method || "main estimate", est: e.estimate, lo: c95 ? c95[0] : null, hi: c95 ? c95[1] : null });
     }
     arr(e.comparisons).forEach(function (c) {
       if (!c) return;
       var c95 = c.ci95 || [];
       frows.push({ label: c.method || "other", est: c.estimate, lo: c95[0], hi: c95[1] });
     });
+    var levelsHtml = "";
+    if (!e.refused && levels.length) {
+      levelsHtml = '<h4 class="sub-h">Intervals at each confidence level</h4>' +
+        '<div class="table-wrap"><table class="records ci-levels"><thead><tr><th scope="col">Level</th><th scope="col">Interval</th><th scope="col">Zero</th></tr></thead><tbody>' +
+        levels.map(function (x) {
+          return "<tr" + (x.level === "95" ? ' class="ci-main"' : "") + "><td>" + x.level + "%</td><td>" + fmt(x.lo) + " to " + fmt(x.hi) + "</td><td>" +
+            (x.excl ? '<span class="zero-mark"><span aria-hidden="true">●</span> excludes zero</span>' : '<span class="zero-mark"><span aria-hidden="true">○</span> includes zero</span>') + "</td></tr>";
+        }).join("") + "</tbody></table></div>" +
+        '<p class="small ci-rule">The conclusion uses the 95% interval.</p>' +
+        (levels.length > 1 ? '<figure class="chart-fig">' + Charts.render({ kind: "forest", title: "The estimate with its 90%, 95%, 98% and 99% intervals",
+          data: { rows: levels.map(function (x) { return { label: x.level + "%", est: num(e.estimate) ? e.estimate : null, lo: x.lo, hi: x.hi }; }), ref: 0 },
+          x_label: "effect on the outcome" }) + "</figure>" : "");
+    }
+    var arHtml = "";
+    if (!e.refused) {
+      var arRows = [["95", extra.ar_ci95], ["98", extra.ar_ci98], ["99", extra.ar_ci99]].filter(function (a) { return Array.isArray(a[1]); });
+      if (arRows.length) arHtml = '<h4 class="sub-h">Intervals that stay valid with a weak instrument (Anderson–Rubin)</h4><ul class="plain-list small">' +
+        arRows.map(function (a) { return "<li>" + a[0] + "%: " + esc(openSet(a[1])) + "</li>"; }).join("") + "</ul>";
+    }
+    var shown = { ci_levels: 1, ar_ci95: 1, ar_ci98: 1, ar_ci99: 1 };
+    var more = {};
+    Object.keys(extra).forEach(function (k) { if (!shown[k]) more[k] = extra[k]; });
     var forest = frows.length > 1 ? Charts.render({ kind: "forest", title: "Main estimate next to other methods (95% intervals)", data: { rows: frows, ref: 0 }, x_label: "effect on the outcome" }) : "";
     var notes = arr(e.comparisons).filter(function (c) { return c && c.note; }).map(function (c) { return (c.method || "") + ": " + c.note; });
     return '<section class="card estimate-card" id="sec-estimate"><header class="card-head"><h3>The estimate</h3>' +
       (e.refused ? '<span class="pill fail"><span class="pill-icon" aria-hidden="true">✕</span>Not estimated</span>' : "") + "</header>" +
       (e.refused ? '<div class="banner banner-warn"><strong>We refused to give a number.</strong> ' + esc(e.refusal_reason || "No reason given.") + "</div>" : "") +
       '<div class="table-wrap"><table class="kv">' + rows.join("") + "</table></div>" +
+      levelsHtml + arHtml +
       (forest ? '<figure class="chart-fig"><figcaption class="chart-title">Other ways of estimating the same thing</figcaption>' + forest + "</figure>" : "") +
       (notes.length ? list(notes, "plain-list small") : "") +
-      (e.extra && Object.keys(e.extra).length ? '<details class="metrics"><summary>More numbers</summary>' + kvTable(e.extra, 0) + "</details>" : "") +
+      (Object.keys(more).length ? '<details class="metrics"><summary>More numbers</summary>' + kvTable(more, 0) + "</details>" : "") +
       chartsHtml(e.charts) + "</section>";
   }
 
@@ -322,6 +386,8 @@ function defineRender(Charts) {
     var rows = {};
     if (c.treatment_phrase || c.treatment_col) rows["Cause (treatment)"] = (c.treatment_phrase ? "“" + c.treatment_phrase + "” → " : "") + (c.treatment_col || "not matched") + (num(c.treatment_score) && c.treatment_col ? " (match " + fmt(c.treatment_score) + ")" : "");
     if (c.outcome_phrase || c.outcome_col) rows["Effect (outcome)"] = (c.outcome_phrase ? "“" + c.outcome_phrase + "” → " : "") + (c.outcome_col || "not matched") + (num(c.outcome_score) && c.outcome_col ? " (match " + fmt(c.outcome_score) + ")" : "");
+    if (c.instrument_phrase || c.instrument_col) rows["Instrument"] = (c.instrument_phrase ? "“" + c.instrument_phrase + "” → " : "") + (c.instrument_col || "not matched") + (num(c.instrument_score) && c.instrument_col ? " (match " + fmt(c.instrument_score) + ")" : "");
+    if (c.design_hint || c.design_hint_phrase) rows["Design hint (from your wording)"] = (c.design_hint_phrase ? "“" + c.design_hint_phrase + "”" : "") + (c.design_hint_phrase && c.design_hint ? " → " : "") + (c.design_hint ? (DESIGN_NAMES[c.design_hint] || c.design_hint) : "");
     if (c.direction) rows["Direction"] = (c.negated ? "not " : "") + c.direction;
     if (num(c.size)) rows["Size"] = (c.bound ? c.bound.replace(/_/g, " ") + " " : "") + fmt(c.size) + " " + (c.size_unit || "");
     if (c.shape) rows["Shape"] = c.shape;

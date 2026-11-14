@@ -7,31 +7,36 @@ The order matters and follows the one rule (never claim more than the data can s
 3. Identification problems FIRST          -> "Inconclusive" (direction and size not assessed):
    grade D or F, any FAIL assumption (design, declaration conflicts, grade-affecting sections),
    any FAIL grade-affecting section, any section with caps_verdict (e.g. outcome dropout).
-4. Direction, then size, then scope / population / shape caps.
+4. Direction (scored), then the scope / population / shape caps. The claimed SIZE is NOT scored:
+   it never changes the label. It is reported as a note, and the sentence says it was not scored.
 
 Rule choices (documented because the spec left them open):
 
-* Direction uses the two-sided 95% CI (equivalently p < 0.05). An insignificant result of
-  either sign is "no_evidence", never a contradiction.
+* The 95% interval is the default for every conclusion. The 90%, 98% and 99% intervals are
+  shown next to it (from estimate.extra["ci_levels"], falling back to ci90 / ci95; missing
+  levels are simply left out). If the 95% interval excludes zero but the 99% one does not, a
+  reason says so.
+* Direction uses the two-sided 95% interval (equivalently p < 0.05). An insignificant result
+  of either sign is "no_evidence", never a contradiction.
 * Negated claims ("X does not reduce Y"): the claim is "no meaningful effect in the named
-  direction". Margin m = |claimed size| if a size is given, else 0.1 x outcome SD (0 if the SD
-  is unknown, which is the strictest choice). Contradicted if the 95% CI shows a significant
-  effect in the named direction (checked first). Supported if the one-sided 5% test rejects a
-  meaningful effect in that direction (90% CI bound on that side is inside the margin).
-  Otherwise no_evidence.
-* No-effect claims: TOST with margin 0.1 x outcome SD. Supported if the 90% CI lies within
-  +-m. Contradicted if the 95% CI excludes 0 AND the point estimate is outside the margin.
-  Otherwise inconclusive ("cannot rule out a meaningful effect").
-* Size, about/exactly/unspecified bound: with c the signed claimed effect and tol = |c|/2,
-  supported if the 90% CI sits inside [c - tol, c + tol]; rejected if c is outside the 95% CI;
-  otherwise inconclusive (interval too wide).
-* Size, "at least c" (measured along the claimed direction, x' = sign(c) * x):
-  rejected if the 95% CI upper bound' < |c| (the CI rules out reaching c);
-  supported if the 90% CI lower bound' >= |c|/2 AND the point estimate' >= |c|;
-  otherwise inconclusive.
-* Size, "at most c" (mirror): rejected if the 95% CI lower bound' > |c|;
-  supported if the 90% CI upper bound' <= 1.5|c| AND the point estimate' <= |c|;
-  otherwise inconclusive.
+  direction". Margin m = |stated size| if a size is given (there the size DEFINES the claim, it
+  is not a magnitude being scored), else 0.1 x outcome SD (0 if the SD is unknown, which is the
+  strictest choice). Contradicted if the 95% interval shows a significant effect in the named
+  direction (checked first). Supported if the 95% interval bound on that side is inside the
+  margin. Otherwise no_evidence.
+* No-effect claims: margin 0.1 x outcome SD. Supported only if the 95% interval lies within
+  +-m. That is stricter than the conventional two one-sided tests at 5%, which use the 90%
+  interval. Contradicted if the 95% interval excludes 0 AND the point estimate is outside the
+  margin. Otherwise inconclusive ("cannot rule out a meaningful effect").
+* Size (unscored note). With c the signed claimed effect in outcome units:
+  "not_scored: consistent"           c is inside the 95% interval;
+  "not_scored: outside the interval" c is outside the 95% interval;
+  "not_scored: not checkable"        the size cannot be converted to outcome units;
+  "not_claimed"                      no size (or a no-effect / negated claim).
+  For "at least c" / "at most c" the label says whether the 95% interval is compatible with
+  the bound: "outside the interval" only when the whole interval lies on the wrong side of the
+  bound, "consistent" when it lies wholly on the right side or straddles the bound (the detail
+  says which).
 * A claimed shape that was not tested or not supported caps "Supported" at "Partly supported".
 * Partial scope (treated / compliers / local_cutoff / overlap_trimmed) or an unmatched claimed
   population caps "Supported" at "Partly supported"; the sentence names the part.
@@ -84,19 +89,81 @@ def _f(x: Optional[float]) -> str:
     if x == 0:
         return "0"
     a = abs(x)
-    if a >= 1000 or a < 0.01:
-        return f"{x:.3g}"
+    if a >= 1000 or a < 1:
+        return f"{x:.3g}"      # three significant digits, so 0.0184 is not shown as 0.02
     return f"{x:.2f}".rstrip("0").rstrip(".") if a < 10 else f"{x:.1f}".rstrip("0").rstrip(".")
 
 
-def _ci(est: Estimate, level: float) -> Optional[tuple[float, float]]:
-    ci = est.ci90 if level == 0.90 else est.ci95
-    if ci is not None and len(ci) == 2 and all(v is not None and math.isfinite(v) for v in ci):
-        return (float(min(ci)), float(max(ci)))
-    if est.estimate is not None and est.se is not None and est.se >= 0:
-        z = stats.norm.ppf(0.5 + level / 2)
+LEVELS = (90, 95, 98, 99)
+
+
+def _pair(ci) -> Optional[tuple[float, float]]:
+    try:
+        if ci is None or len(ci) != 2:
+            return None
+        lo, hi = float(ci[0]), float(ci[1])
+    except (TypeError, ValueError):
+        return None
+    if not (math.isfinite(lo) and math.isfinite(hi)):
+        return None
+    return (min(lo, hi), max(lo, hi))
+
+
+def _ci_levels(est: Optional[Estimate]) -> dict[int, tuple[float, float]]:
+    """extra["ci_levels"] with integer keys; unreadable entries are dropped."""
+    raw = (getattr(est, "extra", None) or {}).get("ci_levels") if est is not None else None
+    out: dict[int, tuple[float, float]] = {}
+    if not isinstance(raw, dict):
+        return out
+    for k, v in raw.items():
+        try:
+            lv = float(str(k).strip().rstrip("%"))
+        except ValueError:
+            continue
+        if 0 < lv < 1:
+            lv *= 100
+        pair = _pair(v)
+        if pair is not None and round(lv) in LEVELS:
+            out[int(round(lv))] = pair
+    return out
+
+
+def _ci(est: Optional[Estimate], level: int) -> Optional[tuple[float, float]]:
+    """Interval at `level` percent: ci_levels first, then ci90 / ci95. Only the 95% interval
+    (the one conclusions rest on) is rebuilt from the standard error when nothing else exists."""
+    if est is None:
+        return None
+    got = _ci_levels(est).get(level)
+    if got is not None:
+        return got
+    if level in (90, 95):
+        pair = _pair(est.ci90 if level == 90 else est.ci95)
+        if pair is not None:
+            return pair
+    if level == 95 and est.estimate is not None and est.se is not None and est.se >= 0 \
+            and math.isfinite(est.estimate) and math.isfinite(est.se):
+        z = stats.norm.ppf(0.975)
         return (est.estimate - z * est.se, est.estimate + z * est.se)
     return None
+
+
+def interval_table(estimate: Optional[Estimate]) -> list[dict]:
+    """[{"level": 90, "lo": .., "hi": .., "excludes_zero": bool}, ...] for the levels available."""
+    rows = []
+    for lv in LEVELS:
+        ci = _ci(estimate, lv)
+        if ci is None:
+            continue
+        rows.append({"level": lv, "lo": ci[0], "hi": ci[1], "excludes_zero": bool(ci[0] > 0 or ci[1] < 0)})
+    return rows
+
+
+def _intervals_text(est: Estimate) -> str:
+    rows = interval_table(est)
+    if not rows:
+        return ""
+    parts = "; ".join(f"{r['level']}% {_f(r['lo'])} to {_f(r['hi'])}" for r in rows)
+    return f"Intervals: {parts}. The conclusion uses the 95% interval."
 
 
 def _names(claim: Claim) -> tuple[str, str]:
@@ -126,10 +193,10 @@ def _size_text(claim: Claim) -> str:
     return f"{bound}{_f(claim.size)}{unit}"
 
 
-def _est_text(est: Estimate, ci90) -> str:
+def _est_text(est: Estimate, ci95) -> str:
     s = f"about {_f(est.estimate)}"
-    if ci90:
-        s += f", 90% CI {_f(ci90[0])} to {_f(ci90[1])}"
+    if ci95:
+        s += f", 95% interval {_f(ci95[0])} to {_f(ci95[1])}"
     return s
 
 
@@ -165,14 +232,15 @@ def identification_problems(design: Design, sections: list[Section]) -> list[str
 
 
 # ----------------------------------------------------------------------------- direction
-def _direction(claim: Claim, est: Estimate, ci90, ci95, margin_sd: float) -> SubVerdict:
+def _direction(claim: Claim, est: Estimate, ci95, margin_sd: float) -> SubVerdict:
+    """Every conclusion here rests on the 95% interval."""
     d = claim.direction
     sd = est.outcome_sd
     lo95, hi95 = ci95
-    lo90, hi90 = ci90
+    ci90 = _ci(est, 90)
     pt = est.estimate
     sig = lo95 > 0 or hi95 < 0
-    ci_txt = f"estimate {_f(pt)}, 95% CI {_f(lo95)} to {_f(hi95)}"
+    ci_txt = f"estimate {_f(pt)}, 95% interval {_f(lo95)} to {_f(hi95)}"
 
     if d == "no_effect" or (claim.negated and d not in ("increase", "decrease")):
         if not sd:
@@ -180,22 +248,29 @@ def _direction(claim: Claim, est: Estimate, ci90, ci95, margin_sd: float) -> Sub
                               "The outcome spread is unknown, so a 'meaningful effect' margin cannot be set; "
                               "an insignificant result is not evidence of no effect.")
         m = margin_sd * sd
-        if lo90 >= -m and hi90 <= m:
+        strict = ("This is stricter than the conventional two one-sided tests at 5%, "
+                  "which use the 90% interval.")
+        if lo95 >= -m and hi95 <= m:
             return SubVerdict("direction", "supported",
-                              f"Equivalence test passed: the 90% CI ({_f(lo90)} to {_f(hi90)}) lies within "
-                              f"+-{_f(m)} ({margin_sd:g} SD), so any effect is small.")
+                              f"The 95% interval ({_f(lo95)} to {_f(hi95)}) lies within "
+                              f"+-{_f(m)} ({margin_sd:g} SD), so any effect is small. {strict}")
         if sig and abs(pt) > m:
             return SubVerdict("direction", "contradicted",
                               f"There is a clear effect ({ci_txt}), larger than the {_f(m)} margin.")
+        note = ""
+        if ci90 is not None and ci90[0] >= -m and ci90[1] <= m:
+            note = (f" The 90% interval ({_f(ci90[0])} to {_f(ci90[1])}) is inside the margin, so the "
+                    "conventional test would pass, but the 95% interval is required here.")
         return SubVerdict("direction", "inconclusive",
-                          f"Cannot rule out a meaningful effect: the 90% CI ({_f(lo90)} to {_f(hi90)}) is not "
-                          f"inside +-{_f(m)}. Not finding an effect is not the same as showing there is none.")
+                          f"Cannot rule out a meaningful effect: the 95% interval ({_f(lo95)} to {_f(hi95)}) is not "
+                          f"inside +-{_f(m)} ({margin_sd:g} SD). Not finding an effect is not the same as showing "
+                          f"there is none. {strict}{note}")
 
     if claim.negated:
         s = 1.0 if d == "increase" else -1.0     # direction the claim says does NOT happen
         c = claimed_effect(claim, est)
         if c is not None and c != 0:
-            m, mtxt = abs(c), f"the claimed {_f(abs(c))}"
+            m, mtxt = abs(c), f"the stated {_f(abs(c))}"
         elif sd:
             m, mtxt = margin_sd * sd, f"{margin_sd:g} SD ({_f(margin_sd * sd)})"
         else:
@@ -203,10 +278,10 @@ def _direction(claim: Claim, est: Estimate, ci90, ci95, margin_sd: float) -> Sub
         word = "rise" if s > 0 else "drop"
         if (s > 0 and lo95 > 0) or (s < 0 and hi95 < 0):
             return SubVerdict("direction", "contradicted", f"There is a significant {word} ({ci_txt}).")
-        bound = hi90 if s > 0 else lo90           # the 90% bound on the claimed-against side
+        bound = hi95 if s > 0 else lo95           # the 95% bound on the claimed-against side
         if s * bound < m:
             return SubVerdict("direction", "supported",
-                              f"A {word} bigger than {mtxt} is ruled out (one-sided test, 90% CI bound {_f(bound)}).")
+                              f"A {word} bigger than {mtxt} is ruled out (95% interval bound {_f(bound)}; {ci_txt}).")
         return SubVerdict("direction", "no_evidence",
                           f"A meaningful {word} (more than {mtxt}) cannot be ruled out ({ci_txt}).")
 
@@ -226,57 +301,94 @@ def _direction(claim: Claim, est: Estimate, ci90, ci95, margin_sd: float) -> Sub
                          if (pt is not None and s * pt < 0) else "the data cannot tell the direction."))
 
 
-# ----------------------------------------------------------------------------- size
-def _size(claim: Claim, est: Estimate, ci90, ci95) -> SubVerdict:
+def _level_note(claim: Claim, est: Estimate, dsub: SubVerdict, margin_sd: float) -> Optional[str]:
+    """Would the direction conclusion differ at the 99% level?"""
+    ci95, ci99 = _ci(est, 95), _ci(est, 99)
+    if ci95 is None or ci99 is None or dsub.label not in ("supported", "contradicted"):
+        return None
+    sig95 = ci95[0] > 0 or ci95[1] < 0
+    sig99 = ci99[0] > 0 or ci99[1] < 0
+    by_margin = dsub.label == "supported" and (claim.direction == "no_effect" or claim.negated)
+    if by_margin:
+        # this conclusion rests on the interval staying inside a margin, not on excluding zero
+        again = _direction(claim, Estimate(method=est.method, target=est.target, estimate=est.estimate,
+                                           ci95=ci99, baseline_mean=est.baseline_mean,
+                                           outcome_sd=est.outcome_sd), ci99, margin_sd)
+        if again.label != dsub.label:
+            return "This conclusion holds with the 95% interval but not with the wider 99% interval."
+        return None
+    if sig95 and not sig99:
+        return "The effect is clear at the 95% level but not at the 99% level."
+    return None
+
+
+# ----------------------------------------------------------------------------- size (unscored note)
+SIZE_TAIL = " The verdict rests on the direction only and does not confirm the claimed size."
+
+
+def _size(claim: Claim, est: Estimate, ci95) -> tuple[SubVerdict, str]:
+    """The size is NOT scored. Returns the note and the clause for the verdict sentence
+    ("" when no size was claimed)."""
     if claim.direction == "no_effect":
-        return SubVerdict("size", "not_claimed", "A no-effect claim is checked by the equivalence test.")
+        return SubVerdict("size", "not_claimed",
+                          "A no-effect claim is checked against the margin in the direction check."), ""
     if claim.size is None:
-        return SubVerdict("size", "not_claimed", "The claim gives no size.")
+        return SubVerdict("size", "not_claimed", "The claim gives no size."), ""
     if claim.negated:
         return SubVerdict("size", "not_claimed",
                           f"The stated size ({_size_text(claim)}) is used as the 'meaningful effect' margin "
-                          "in the direction check.")
+                          "in the direction check; it is not scored as a size."), ""
+    lo, hi = ci95
+    iv = f"{_f(lo)} to {_f(hi)}"
+    stxt = _size_text(claim)
+    nums = f"Estimate {_f(est.estimate)}, 95% interval {iv}."
     c = claimed_effect(claim, est)
     if c is None:
         why = {"percent": "a percent change needs a non-zero baseline (control) mean",
                "times": "a 'times' change needs a baseline (control) mean",
                "sd": "the outcome standard deviation is unknown"}.get(claim.size_unit or "",
                                                                      "the size could not be turned into outcome units")
-        return SubVerdict("size", "not_checkable", f"Not checkable: {why}.")
-    lo90, hi90 = ci90
-    lo95, hi95 = ci95
-    pt = est.estimate
-    ctxt = f"the claimed {_size_text(claim)} (= {_f(c)} in outcome units)"
-    est_txt = f"estimate {_f(pt)}, 90% CI {_f(lo90)} to {_f(hi90)}, 95% CI {_f(lo95)} to {_f(hi95)}"
-    tol = abs(c) / 2
-    bound = claim.bound
-    if bound in ("at_least", "at_most") and c != 0:
+        return (SubVerdict("size", "not_scored: not checkable",
+                           f"Not scored. The claimed size ({stxt}) cannot be put in outcome units: {why}. "
+                           f"{nums}{SIZE_TAIL}"),
+                f"; the claimed size ({stxt}) was not scored \u2014 it could not be converted to outcome units")
+    if claim.size_unit == "absolute":
+        bword = {"at_least": "at least ", "at_most": "at most "}.get(claim.bound or "", "")
+        shown = f"{bword}{_f(c)}"
+    else:
+        shown = f"{stxt} \u2248 {_f(c)}"
+    head = f"Not scored. The claimed size ({stxt}) is {_f(c)} in outcome units. {nums} "
+
+    if claim.bound in ("at_least", "at_most") and c != 0:
         s = 1.0 if c > 0 else -1.0
-        # move into "along the claimed direction" coordinates
-        l90, h90 = sorted((s * lo90, s * hi90))
-        l95, h95 = sorted((s * lo95, s * hi95))
-        p, a = s * pt, abs(c)
-        if bound == "at_least":
-            if h95 < a:
-                return SubVerdict("size", "rejected", f"The 95% CI rules out an effect as large as {ctxt} ({est_txt}).")
-            if l90 >= a / 2 and p >= a:
-                return SubVerdict("size", "supported",
-                                  f"The estimate reaches {ctxt} and the 90% CI stays above half of it ({est_txt}).")
-            return SubVerdict("size", "inconclusive",
-                              f"Inconclusive (interval too wide or estimate below the claim) for {ctxt} ({est_txt}).")
-        if l95 > a:
-            return SubVerdict("size", "rejected", f"The 95% CI shows an effect bigger than {ctxt} ({est_txt}).")
-        if h90 <= a + a / 2 and p <= a:
-            return SubVerdict("size", "supported",
-                              f"The estimate is within {ctxt} and the 90% CI stays below 1.5 times it ({est_txt}).")
-        return SubVerdict("size", "inconclusive", f"Inconclusive (interval too wide) for {ctxt} ({est_txt}).")
-    if lo95 > c or hi95 < c:
-        return SubVerdict("size", "rejected", f"{ctxt[0].upper() + ctxt[1:]} is outside the 95% CI ({est_txt}).")
-    if lo90 >= c - tol and hi90 <= c + tol:
-        return SubVerdict("size", "supported",
-                          f"The 90% CI sits within half of {ctxt} either way ({est_txt}).")
-    return SubVerdict("size", "inconclusive",
-                      f"Inconclusive (interval too wide): {ctxt} is inside the CI, but so are quite different sizes ({est_txt}).")
+        l, h = sorted((s * lo, s * hi))          # along the claimed direction
+        a = abs(c)
+        if claim.bound == "at_least":
+            good, bad = l >= a, h < a
+            good_txt = "lies entirely at or beyond that bound, which is compatible with it"
+            bad_txt = "falls entirely short of that bound, which is not compatible with it"
+        else:
+            good, bad = h <= a, l > a
+            good_txt = "lies entirely within that bound, which is compatible with it"
+            bad_txt = "lies entirely beyond that bound, which is not compatible with it"
+        if bad:
+            label, what = "not_scored: outside the interval", bad_txt
+        elif good:
+            label, what = "not_scored: consistent", good_txt
+        else:
+            label, what = "not_scored: consistent", ("contains that bound, so the data neither confirm "
+                                                     "nor rule it out")
+        return (SubVerdict("size", label, f"{head}The 95% interval {what}.{SIZE_TAIL}"),
+                f"; the claimed size ({shown}) was not scored \u2014 the 95% interval ({iv}) {what}")
+
+    if lo <= c <= hi:
+        return (SubVerdict("size", "not_scored: consistent",
+                           f"{head}The claimed value is inside the 95% interval, so it is consistent with the "
+                           f"data, but so is every other value in that interval.{SIZE_TAIL}"),
+                f"; the claimed size ({shown}) was not scored \u2014 it is consistent with the 95% interval ({iv})")
+    return (SubVerdict("size", "not_scored: outside the interval",
+                       f"{head}The claimed value is outside the 95% interval.{SIZE_TAIL}"),
+            f"; the claimed size ({shown}) was not scored \u2014 it lies outside the 95% interval ({iv})")
 
 
 # ----------------------------------------------------------------------------- other aspects
@@ -407,8 +519,8 @@ def _make_verdict(claim, design, est, sections, margin_sd) -> Verdict:
                             SubVerdict("size", "not_assessed", f"No estimate: {why}"),
                             scope, pop, shape, dq],
                        reasons=reasons)
-    ci90, ci95 = _ci(est, 0.90), _ci(est, 0.95)
-    if est.estimate is None or ci90 is None or ci95 is None:
+    ci95 = _ci(est, 95)
+    if est.estimate is None or ci95 is None:
         reasons.append("The estimate has no uncertainty interval, so nothing can be concluded from it.")
         reasons.extend(blockers)
         return Verdict(label="Inconclusive",
@@ -419,7 +531,7 @@ def _make_verdict(claim, design, est, sections, margin_sd) -> Verdict:
 
     # 3. identification first ------------------------------------------------------
     if blockers:
-        nums = f"(for reference only: estimate {_f(est.estimate)}, 95% CI {_f(ci95[0])} to {_f(ci95[1])})"
+        nums = f"(for reference only: estimate {_f(est.estimate)}, 95% interval {_f(ci95[0])} to {_f(ci95[1])})"
         reasons = ["The design cannot separate cause from other explanations here:"] + blockers + reasons
         return Verdict(label="Inconclusive",
                        sentence=f"The data cannot show whether {phrase}, because of a problem with the design "
@@ -431,21 +543,23 @@ def _make_verdict(claim, design, est, sections, margin_sd) -> Verdict:
                             scope, pop, shape, dq],
                        reasons=reasons, caveat=caveat)
 
-    # 4. direction and size --------------------------------------------------------
-    dsub = _direction(claim, est, ci90, ci95, margin_sd)
-    ssub = _size(claim, est, ci90, ci95)
-    reasons.append(dsub.detail)
-    if ssub.label not in ("not_claimed",):
-        reasons.append(ssub.detail)
+    # 4. direction (scored) and size (a note only) -------------------------------------
+    dsub = _direction(claim, est, ci95, margin_sd)
+    core = dsub.detail                       # without the interval list, for the sentence
+    ssub, size_clause = _size(claim, est, ci95)
+    reasons.append(core)
+    level_note = _level_note(claim, est, dsub, margin_sd)
+    if level_note:
+        reasons.append(level_note)
+    if ssub.label.startswith("not_scored"):
+        reasons.append("Size: " + ssub.detail)
+    itxt = _intervals_text(est)
+    if itxt:
+        dsub = SubVerdict("direction", dsub.label, f"{core} {itxt}")
 
-    if dsub.label == "contradicted" or ssub.label == "rejected":
-        label = "Contradicted"
-    elif dsub.label == "supported":
-        label = "Supported" if ssub.label in ("supported", "not_claimed") else "Partly supported"
-    elif dsub.label == "no_evidence":
-        label = "No evidence"
-    else:
-        label = "Inconclusive"
+    # the label comes from the direction only; the claimed size never changes it
+    label = {"contradicted": "Contradicted", "supported": "Supported",
+             "no_evidence": "No evidence"}.get(dsub.label, "Inconclusive")
 
     caps: list[str] = []
     if scope.label == "capped":
@@ -463,33 +577,22 @@ def _make_verdict(claim, design, est, sections, margin_sd) -> Verdict:
         reasons.append("Data quality: " + dq.detail)
 
     # 5. sentence -----------------------------------------------------------------
-    est_txt = _est_text(est, ci90)
-    size_claim = _size_text(claim)
+    est_txt = _est_text(est, ci95)
     where = (" " + caps[0]) if caps and est.scope != "full" and label != "Contradicted" else ""
     if label in ("Supported", "Partly supported"):
-        s = f"The data support that {phrase}{where}"
-        if ssub.label == "supported":
-            s += f", and the size ({est_txt}) is close to the claimed {size_claim}"
-        elif ssub.label == "inconclusive":
-            s += f", but the size ({est_txt}) is too uncertain to confirm the claimed {size_claim}"
-        elif ssub.label == "not_checkable":
-            s += f" ({est_txt}), but the claimed size {size_claim} could not be checked"
-        else:
-            s += f" ({est_txt})"
+        s = f"The data support that {phrase}{where} ({est_txt})"
         if pop.label == "not_matched":
             s += ", though this was tested on everyone, not the claimed group"
         if claim.shape and shape.label in ("not_tested", "not_shown", "rejected"):
             s += f", and the claimed {claim.shape} shape was not confirmed"
     elif label == "Contradicted":
-        if dsub.label == "contradicted":
-            s = f"The data contradict that {phrase} ({dsub.detail.rstrip('.')})"
-        else:
-            s = f"The data contradict the claimed size {size_claim}: the effect is {est_txt}, which rules it out"
+        s = f"The data contradict that {phrase} ({core.rstrip('.')})"
     elif label == "No evidence":
         s = f"The data show no clear evidence that {phrase}{where} ({est_txt})"
     else:
         s = (f"The data cannot show whether {phrase}{where}: a meaningful effect cannot be ruled out "
              f"({est_txt}), and not finding an effect is not evidence of no effect")
+    s += size_clause                         # says the size was not scored, whenever one was claimed
 
     sentence = _with_caveat(s, caveat)
     if caveat:

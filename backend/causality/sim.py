@@ -158,6 +158,25 @@ def chain(n=3000, seed=10):
         "edges": [("A", "B"), ("B", "C"), ("D", "C")], "independent": ["E"], "design": "explore"}
 
 
+def event_study(firms=120, days=80, effect=0.02, seed=12):
+    """Finance-style event study: each firm has ONE event day (a pulse, not a lasting
+    treatment) somewhere in the last 20 days; its return jumps by `effect` on that day only.
+    Returns follow a market model with firm-specific beta and volatility."""
+    rng = np.random.default_rng(seed)
+    market = rng.normal(0.0005, 0.01, days)
+    rows = []
+    for i in range(firms):
+        beta, vol = rng.uniform(0.6, 1.4), rng.uniform(0.01, 0.03)
+        ev = int(rng.integers(days - 20, days - 3))
+        for d in range(days):
+            is_ev = int(d == ev)
+            r = 0.0002 + beta * market[d] + effect * is_ev + rng.normal(0, vol)
+            rows.append((f"firm{i:03d}", d, is_ev, r, market[d]))
+    df = pd.DataFrame(rows, columns=["firm", "day", "announcement", "ret", "market_ret"])
+    return df, {"effect": effect, "target": "event_day_abnormal_return", "design": "did", "treatment": "announcement",
+                "outcome": "ret", "unit": "firm", "time": "day"}
+
+
 def null_rct(n=4000, seed=11):
     """RCT with exactly zero effect (for 'does not affect' claims / equivalence)."""
     return rct(n=n, effect=0.0, seed=seed)
@@ -167,5 +186,5 @@ ALL = {
     "rct": rct, "rct_post": rct_with_post_treatment, "observational": observational,
     "observational_hidden": observational_hidden, "no_overlap": no_overlap, "did": did_staggered,
     "iv": iv, "rd": rd, "dose": dose, "cluster_saturation": cluster_saturation, "chain": chain,
-    "null_rct": null_rct,
+    "null_rct": null_rct, "event_study": event_study,
 }

@@ -204,6 +204,16 @@ input[type=text]:focus, input[type=number]:focus, select:focus { outline: 2px so
 .sub-card.v-neutral { border-top: 3px solid var(--axis); }
 .sub-card .sub-detail, .sub-card .sub-aspect { color: var(--muted); }
 .sub-card.v-neutral .sub-label { color: var(--fg); }
+/* a note, not a result: grey, dashed, never green or red */
+.sub-card.sub-note { background: var(--bg-sunk); border-style: dashed; border-color: var(--axis); }
+.sub-card.sub-note .sub-label { color: var(--muted); }
+table.ci-levels { width: auto; }
+table.ci-levels tr.ci-main td { font-weight: 650; }
+.zero-mark { color: var(--muted); white-space: nowrap; }
+.ci-rule { color: var(--muted); margin: 4px 0 8px; }
+.dag-legend ul.dag-groups { display: block; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--grid); }
+.dag-legend ul.dag-groups li { display: block; margin: 3px 0; }
+.sw-k { background: var(--node-p); border-style: dashed; border-color: var(--s4); }
 
 /* assumed panel: amber / neutral, never green, never a check mark */
 .assumed-panel { background: var(--amber-panel); border: 2px dashed var(--amber-panel-bd); }

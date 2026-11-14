@@ -9,7 +9,7 @@ from causality import sim
 from causality.data import prepare
 from causality.schema import (Assumption, Claim, Design, Estimate, Roles, Section, Status)
 from causality.suggest import n_per_arm, suggest_study
-from causality.verdict import make_verdict
+from causality.verdict import interval_table, make_verdict
 
 
 def claim(**kw):
@@ -24,6 +24,12 @@ def est(point=1.5, se=0.1, scope="full", sd=3.0, base=10.0, **kw):
     return Estimate(method="Difference in means", target="ATE", scope=scope, estimate=point, se=se,
                     ci90=(point - z90 * se, point + z90 * se), ci95=(point - z95 * se, point + z95 * se),
                     p_value=2 * stats.norm.sf(abs(point / se)), n=2000, baseline_mean=base, outcome_sd=sd, **kw)
+
+
+def levels(point, se, keep=("90", "95", "98", "99")):
+    out = {str(lv): [point - stats.norm.ppf(0.5 + lv / 200) * se, point + stats.norm.ppf(0.5 + lv / 200) * se]
+           for lv in (90, 95, 98, 99)}
+    return {k: v for k, v in out.items() if k in keep}
 
 
 def design(kind="experiment", grade="A", **kw):
@@ -107,60 +113,186 @@ def test_negated_claim():
     assert make_verdict(c, design(), est(point=0.0, se=1.0), []).label == "No evidence"
 
 
-# ----------------------------------------------------------------------------- size
-def test_size_supported_inside_half_band():
+def test_negated_claim_uses_95_bound():
+    c = claim(direction="decrease", negated=True, raw="treated does not reduce score")
+    # margin 0.3: the 90% lower bound (-0.28) is inside it, the 95% one (-0.33) is not
+    e = est(point=0.0, se=0.17)
+    assert e.ci90[0] > -0.3 > e.ci95[0]
+    v = make_verdict(c, design(), e, [])
+    assert v.label == "No evidence" and sub(v, "direction").label == "no_evidence"
+    # 95% bound inside the margin -> supported, and the detail names the 95% bound
+    v2 = make_verdict(c, design(), est(point=0.0, se=0.15), [])
+    assert v2.label == "Supported" and "95% interval bound" in sub(v2, "direction").detail
+    # a stated size is the margin for a negated claim, not a scored size
+    c3 = claim(direction="decrease", negated=True, size=1, size_unit="absolute")
+    v3 = make_verdict(c3, design(), e, [])
+    assert v3.label == "Supported" and sub(v3, "size").label == "not_claimed"
+
+
+# ----------------------------------------------------------------------------- size (never scored)
+def size_checks(v, label):
+    s = sub(v, "size")
+    assert s.label == label and s.label.startswith("not_scored")
+    assert s.detail.startswith("Not scored.")
+    assert "was not scored" in v.sentence
+    assert any("Not scored." in r for r in v.reasons)
+    return s
+
+
+def test_size_consistent_is_a_note_only():
     c = claim(size=15, size_unit="percent")          # 15% of baseline 10 = 1.5
     v = make_verdict(c, design(), est(point=1.5, se=0.1, base=10), [])
-    assert sub(v, "size").label == "supported" and v.label == "Supported"
-    assert "15%" in v.sentence
+    assert v.label == "Supported" and sub(v, "direction").label == "supported"
+    s = size_checks(v, "not_scored: consistent")
+    assert "1.5 in outcome units" in s.detail and "95% interval 1.3 to 1.7" in s.detail
+    assert "; the claimed size (15% \u2248 1.5) was not scored \u2014 it is consistent with the 95% interval (1.3 to 1.7)" in v.sentence
+    assert "close to" not in v.sentence and "confirm" not in v.sentence
 
 
-def test_size_rejected_when_outside_ci95():
-    c = claim(size=50, size_unit="percent")          # claimed 5.0, CI ~1.3..1.7
+def test_size_far_outside_interval_does_not_change_label():
+    c = claim(size=60, size_unit="percent")          # claimed 6.0, 95% interval ~1.3..1.7
     v = make_verdict(c, design(), est(point=1.5, se=0.1, base=10), [])
-    assert sub(v, "size").label == "rejected" and v.label == "Contradicted"
+    assert v.label == "Supported" and sub(v, "direction").label == "supported"
+    size_checks(v, "not_scored: outside the interval")
+    assert "(60% \u2248 6) was not scored \u2014 it lies outside the 95% interval (1.3 to 1.7)" in v.sentence
+    # same data, no size claimed: same label, nothing about size in the sentence
+    v0 = make_verdict(claim(), design(), est(point=1.5, se=0.1, base=10), [])
+    assert v0.label == v.label and "size" not in v0.sentence
+    assert sub(v0, "size").label == "not_claimed"
 
 
-def test_size_inconclusive_wide_interval():
+def test_size_wide_interval_still_direction_only():
     c = claim(size=15, size_unit="percent")
     v = make_verdict(c, design(), est(point=1.5, se=0.6, base=10), [])
-    assert sub(v, "size").label == "inconclusive" and v.label == "Partly supported"
+    assert v.label == "Supported"
+    size_checks(v, "not_scored: consistent")
+
+
+def test_size_does_not_rescue_or_sink_other_labels():
+    c = claim(size=15, size_unit="percent")
+    v = make_verdict(c, design(), est(point=0.1, se=0.2, base=10), [])     # insignificant
+    assert v.label == "No evidence"
+    size_checks(v, "not_scored: outside the interval")
+    v = make_verdict(c, design(), est(point=-1.0, se=0.2, base=10), [])    # significant, opposite sign
+    assert v.label == "Contradicted"
+    size_checks(v, "not_scored: outside the interval")
 
 
 def test_percent_conversion_uses_baseline():
     c = claim(size=15, size_unit="percent")
-    # same estimate, baseline 100 -> claimed 15, far outside CI
-    assert sub(make_verdict(c, design(), est(point=1.5, se=0.1, base=100), []), "size").label == "rejected"
-    # baseline 0 -> not checkable
+    # same estimate, baseline 100 -> claimed 15, far outside the interval; label unchanged
+    v = make_verdict(c, design(), est(point=1.5, se=0.1, base=100), [])
+    assert v.label == "Supported"
+    assert "15 in outcome units" in size_checks(v, "not_scored: outside the interval").detail
+    # baseline 0 -> not checkable, and that no longer downgrades the label
     v = make_verdict(c, design(), est(point=1.5, se=0.1, base=0.0), [])
-    assert sub(v, "size").label == "not_checkable" and v.label == "Partly supported"
+    assert v.label == "Supported"
+    size_checks(v, "not_scored: not checkable")
+    assert "could not be converted" in v.sentence
 
 
 def test_decrease_size_signed():
     c = claim(direction="decrease", size=2, size_unit="absolute")
     v = make_verdict(c, design(), est(point=-2.0, se=0.2), [])
-    assert sub(v, "size").label == "supported" and v.label == "Supported"
+    assert v.label == "Supported"
+    assert "-2 in outcome units" in size_checks(v, "not_scored: consistent").detail
 
 
 def test_at_least_and_at_most():
     c = claim(size=1.0, size_unit="absolute", bound="at_least")
-    assert sub(make_verdict(c, design(), est(point=1.5, se=0.1), []), "size").label == "supported"
-    assert sub(make_verdict(c, design(), est(point=0.5, se=0.1), []), "size").label == "rejected"
+    v = make_verdict(c, design(), est(point=1.5, se=0.1), [])
+    assert v.label == "Supported"
+    assert "compatible with it" in size_checks(v, "not_scored: consistent").detail
+    v = make_verdict(c, design(), est(point=0.5, se=0.1), [])
+    assert v.label == "Supported"                    # direction is clear; the bound is only a note
+    s = size_checks(v, "not_scored: outside the interval")
+    assert "not compatible" in s.detail and "falls entirely short" in v.sentence
+    v = make_verdict(c, design(), est(point=1.0, se=0.2), [])
+    assert "neither confirm nor rule it out" in size_checks(v, "not_scored: consistent").detail
     c2 = claim(size=1.0, size_unit="absolute", bound="at_most")
-    assert sub(make_verdict(c2, design(), est(point=0.8, se=0.1), []), "size").label == "supported"
-    assert sub(make_verdict(c2, design(), est(point=2.0, se=0.1), []), "size").label == "rejected"
+    v = make_verdict(c2, design(), est(point=0.8, se=0.05), [])
+    assert "compatible with it" in size_checks(v, "not_scored: consistent").detail
+    v = make_verdict(c2, design(), est(point=2.0, se=0.1), [])
+    assert v.label == "Supported"
+    assert "not compatible" in size_checks(v, "not_scored: outside the interval").detail
+
+
+def test_size_not_assessed_when_identification_fails():
+    c = claim(size=15, size_unit="percent")
+    v = make_verdict(c, design(grade="F"), est(), [])
+    assert v.label == "Inconclusive" and sub(v, "size").label == "not_assessed"
 
 
 # ----------------------------------------------------------------------------- no effect
 def test_equivalence():
     c = claim(direction="no_effect", raw="treated has no effect on score")
-    # margin 0.1*3 = 0.3; tight CI around 0 -> supported
-    assert make_verdict(c, design(), est(point=0.0, se=0.05), []).label == "Supported"
+    # margin 0.1*3 = 0.3; tight 95% interval around 0 -> supported
+    v = make_verdict(c, design(), est(point=0.0, se=0.05), [])
+    assert v.label == "Supported"
+    assert "95% interval" in sub(v, "direction").detail and "stricter" in sub(v, "direction").detail
+    assert sub(v, "size").label == "not_claimed" and "not scored" not in v.sentence
     # insignificant but wide -> NOT support
     v = make_verdict(c, design(), est(point=0.0, se=0.5), [])
     assert v.label == "Inconclusive" and sub(v, "direction").label == "inconclusive"
     # clear, big effect -> contradicted
     assert make_verdict(c, design(), est(point=1.0, se=0.1), []).label == "Contradicted"
+
+
+def test_equivalence_needs_the_95_interval_inside_the_margin():
+    c = claim(direction="no_effect", raw="treated has no effect on score")
+    e = est(point=0.0, se=0.17)                      # 90%: +-0.28 (inside 0.3); 95%: +-0.33 (not inside)
+    assert e.ci90[1] < 0.3 < e.ci95[1]
+    v = make_verdict(c, design(), e, [])
+    assert v.label == "Inconclusive" and sub(v, "direction").label == "inconclusive"
+    d = sub(v, "direction").detail
+    assert "stricter" in d and "90% interval" in d
+    assert make_verdict(c, design(), est(point=0.0, se=0.15), []).label == "Supported"
+
+
+# ----------------------------------------------------------------------------- interval levels
+def test_sentence_and_details_quote_the_95_interval():
+    v = make_verdict(claim(), design(), est(point=1.5, se=0.1), [])
+    assert "95% interval 1.3 to 1.7" in v.sentence and "90%" not in v.sentence
+    d = sub(v, "direction").detail
+    assert "Intervals: 90% 1.34 to 1.66; 95% 1.3 to 1.7." in d      # no ci_levels: falls back to ci90 / ci95
+    assert d.endswith("The conclusion uses the 95% interval.")
+
+
+def test_interval_table_full_partial_missing():
+    full = interval_table(est(point=1.0, se=0.45, extra={"ci_levels": levels(1.0, 0.45)}))
+    assert [r["level"] for r in full] == [90, 95, 98, 99]
+    assert [r["excludes_zero"] for r in full] == [True, True, False, False]
+    assert full[1]["lo"] == pytest.approx(1.0 - 1.959964 * 0.45) and full[3]["hi"] == pytest.approx(1.0 + 2.575829 * 0.45)
+    assert set(full[0]) == {"level", "lo", "hi", "excludes_zero"}
+
+    part = interval_table(est(point=1.0, se=0.45, extra={"ci_levels": levels(1.0, 0.45, keep=("98",))}))
+    assert [r["level"] for r in part] == [90, 95, 98]             # 90 / 95 from ci90 / ci95, 99 left out
+    assert part[0]["lo"] == pytest.approx(1.0 - 1.644854 * 0.45)
+
+    assert [r["level"] for r in interval_table(est())] == [90, 95]
+    bad = est(extra={"ci_levels": {"99": [None, 2.0], "98": "x", "97": [0, 1]}})
+    assert [r["level"] for r in interval_table(bad)] == [90, 95]
+    assert interval_table(None) == []
+    assert interval_table(Estimate(method="m", target="ATE", refused=True)) == []
+
+    v = make_verdict(claim(), design(), est(point=1.0, se=0.45, extra={"ci_levels": levels(1.0, 0.45)}), [])
+    d = sub(v, "direction").detail
+    assert all(f"{lv}% " in d for lv in (90, 95, 98, 99)) and "The conclusion uses the 95% interval." in d
+
+
+def test_reason_when_99_disagrees():
+    msg = "The effect is clear at the 95% level but not at the 99% level."
+    e = est(point=1.0, se=0.45, extra={"ci_levels": levels(1.0, 0.45)})       # z = 2.2
+    v = make_verdict(claim(), design(), e, [])
+    assert v.label == "Supported" and msg in v.reasons
+    # clear at 99% too -> no such reason
+    e2 = est(point=1.5, se=0.1, extra={"ci_levels": levels(1.5, 0.1)})
+    assert msg not in make_verdict(claim(), design(), e2, []).reasons
+    # no 99% interval available -> nothing is said about it
+    assert msg not in make_verdict(claim(), design(), est(point=1.0, se=0.45), []).reasons
+    # not clear at 95% either -> no such reason
+    e3 = est(point=0.5, se=0.45, extra={"ci_levels": levels(0.5, 0.45)})
+    assert msg not in make_verdict(claim(), design(), e3, []).reasons
 
 
 # ----------------------------------------------------------------------------- scope / population / shape

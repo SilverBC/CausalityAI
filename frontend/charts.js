@@ -352,7 +352,8 @@ function defineCharts() {
   }
 
   // ---------------------------------------------------------------------- dag
-  // data = {nodes: [{id, role}], edges: [{from, to, type, label, confidence}]}
+  // data = {nodes: [{id, role, group?}], edges: [{from, to, type, label, confidence}],
+  //         groups?: [{name, members: [node ids], note}]}
   var TOP = ["confounder", "covariate", "hidden", "latent", "unobserved", "unmeasured", "common_cause", "time", "unit", "other", "variable", ""];
   var BOTTOM = ["collider", "post_treatment", "cluster", "strata", "saturation", "descendant", "selection"];
   function roleOf(n) {
@@ -360,6 +361,7 @@ function defineCharts() {
     // "unmeasured confounder", "fixed effect") onto the layout keys
     var r = String(n.role || "").toLowerCase();
     if (/unmeasured|hidden|latent|unobserved/.test(r)) return "hidden";
+    if (/collider/.test(r)) return "collider";   // "possible collider (excluded)", "collider (found)"
     if (/post.?treatment/.test(r)) return "post_treatment";
     if (/^instrument/.test(r)) return "instrument";
     if (/^running/.test(r)) return "running";
@@ -373,7 +375,8 @@ function defineCharts() {
     if (role === "outcome") return "fill:var(--node-o);stroke:var(--s2)";
     if (isHidden(role)) return "fill:var(--bg-card);stroke:var(--muted);stroke-dasharray:4 3";
     if (role === "instrument" || role === "running") return "fill:var(--node-i);stroke:var(--s3)";
-    if (role === "post_treatment" || role === "collider" || role === "mediator") return "fill:var(--node-p);stroke:var(--s4)";
+    if (role === "collider") return "fill:var(--node-p);stroke:var(--s4);stroke-dasharray:5 3";
+    if (role === "post_treatment" || role === "mediator") return "fill:var(--node-p);stroke:var(--s4)";
     return "fill:var(--node-c);stroke:var(--axis)";
   }
 
@@ -381,12 +384,19 @@ function defineCharts() {
     opts = opts || {};
     var d = chart.data || {};
     var seen = {};
+    var groupOf = {};
+    arr(d.groups).forEach(function (g) {
+      if (!g || g.name == null) return;
+      arr(g.members).forEach(function (m) { if (groupOf[String(m)] == null) groupOf[String(m)] = String(g.name); });
+    });
+    var outlines = [];
     var nodes = arr(d.nodes).filter(function (n) {
       if (!n || n.id == null || seen[n.id]) return false;
       seen[n.id] = true; return true;
     }).map(function (n) {
       var label = clip(n.label || n.id, 22);
-      return { id: String(n.id), full: String(n.label || n.id), label: label, role: roleOf(n), w: Math.max(56, label.length * 7 + 18), h: 30 };
+      return { id: String(n.id), full: String(n.label || n.id), label: label, role: roleOf(n), w: Math.max(56, label.length * 7 + 18), h: 30,
+        group: n.group != null && n.group !== "" ? String(n.group) : (groupOf[String(n.id)] || "") };
     });
     if (!nodes.length) return empty(chart, "No diagram to draw");
     var byId = {};
@@ -441,8 +451,23 @@ function defineCharts() {
       };
       [top, bot].forEach(function (list) {
         list.forEach(function (x) { x.b = bary(x); });
-        list.sort(function (a, b) { return a.b - b.b; });
+        // keep the members of one group next to each other so each outline is one block
+        var gOrder = [];
+        list.forEach(function (x) { if (x.group && gOrder.indexOf(x.group) < 0) gOrder.push(x.group); });
+        var gPos = {};
+        gOrder.forEach(function (g) {
+          var ms = list.filter(function (x) { return x.group === g; });
+          gPos[g] = ms.reduce(function (a, x) { return a + x.b; }, 0) / ms.length;
+        });
+        list.forEach(function (x) { x.gb = x.group ? gPos[x.group] : x.b; });
+        list.sort(function (a, b) {
+          if (a.gb !== b.gb) return a.gb - b.gb;
+          if (a.group !== b.group) return a.group < b.group ? -1 : 1;
+          return a.b - b.b;
+        });
       });
+      var topGrouped = top.some(function (x) { return x.group; });
+      var botGrouped = bot.some(function (x) { return x.group; });
       var GAP = 16;
       var wrapRows = function (list) {
         var rows = [], cur = [], wsum = 0;
@@ -469,7 +494,7 @@ function defineCharts() {
       var midRows = 1;
       for (var k in midCounts) midRows = Math.max(midRows, midCounts[k]);
       var rowGap = 56, bandGap = 96;
-      var y0 = 24;
+      var y0 = topGrouped ? 44 : 24;
       var topRows = wrapRows(top), botRows = wrapRows(bot);
       placeRows(topRows, y0, rowGap);
       var midY = topRows.length ? y0 + (topRows.length - 1) * rowGap + bandGap : y0;
@@ -481,7 +506,21 @@ function defineCharts() {
       });
       var botY = midY + (midRows - 1) * rowGap + bandGap;
       placeRows(botRows, botY, rowGap);
-      H = (botRows.length ? botY + (botRows.length - 1) * rowGap : midY + (midRows - 1) * rowGap) + 30;
+      H = (botRows.length ? botY + (botRows.length - 1) * rowGap : midY + (midRows - 1) * rowGap) + (botRows.length && botGrouped ? 46 : 30);
+      // one faint dashed outline per group and row; caption above (top rows) or below (bottom rows)
+      [[topRows, true], [botRows, false]].forEach(function (pair) {
+        pair[0].forEach(function (row) {
+          var names = [];
+          row.forEach(function (x) { if (x.group && names.indexOf(x.group) < 0) names.push(x.group); });
+          names.forEach(function (g) {
+            var ms = row.filter(function (x) { return x.group === g; });
+            var x0 = Infinity, x1 = -Infinity;
+            ms.forEach(function (x) { x0 = Math.min(x0, x.x - x.w / 2); x1 = Math.max(x1, x.x + x.w / 2); });
+            x0 = Math.max(1, x0 - 7); x1 = Math.min(W - 1, x1 + 7);
+            outlines.push({ name: g, x: x0, y: ms[0].y - 22, w: x1 - x0, h: 44, above: pair[1] });
+          });
+        });
+      });
     }
 
     var id = ++uid;
@@ -553,6 +592,16 @@ function defineCharts() {
         var ly = bend ? 0.25 * p0[1] + 0.5 * cy + 0.25 * p1[1] : (p0[1] + p1[1]) / 2;
         labelSvg += text(lx, ly - 3, lbl, "middle", "fill:var(--muted);font-size:11px;paint-order:stroke;stroke:var(--bg-card);stroke-width:4px;stroke-linejoin:round");
       }
+    });
+    var seenCaption = {};
+    outlines.forEach(function (o) {
+      s += '<rect class="dag-group" x="' + r(o.x) + '" y="' + r(o.y) + '" width="' + r(o.w) + '" height="' + r(o.h) +
+        '" rx="10" style="fill:var(--axis);fill-opacity:0.06;stroke:var(--axis);stroke-width:1;stroke-dasharray:5 4"><title>' + esc(o.name) + "</title></rect>";
+      // a group that wraps onto several rows is captioned once
+      var key = o.name + (o.above ? "^" : "v");
+      if (seenCaption[key]) return;
+      seenCaption[key] = true;
+      s += text(o.x + 4, o.above ? o.y - 5 : o.y + o.h + 13, clip(o.name, Math.max(8, Math.floor((W - o.x - 8) / 6.2))), "start", "fill:var(--muted);font-size:11px");
     });
     s += edgeSvg + labelSvg;
     nodes.forEach(function (n) {
