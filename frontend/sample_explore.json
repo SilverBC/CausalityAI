@@ -1,0 +1,507 @@
+{
+ "mode": "explore",
+ "data": {
+  "n_rows": 2600,
+  "n_columns": 10,
+  "n_duplicates": 0,
+  "columns": [
+   {
+    "name": "exercise_hours",
+    "kind": "continuous",
+    "n_missing": 0,
+    "n_unique": 200,
+    "encoded_as": [
+     "exercise_hours"
+    ],
+    "note": ""
+   },
+   {
+    "name": "sleep_hours",
+    "kind": "continuous",
+    "n_missing": 0,
+    "n_unique": 200,
+    "encoded_as": [
+     "sleep_hours"
+    ],
+    "note": ""
+   },
+   {
+    "name": "stress",
+    "kind": "continuous",
+    "n_missing": 0,
+    "n_unique": 200,
+    "encoded_as": [
+     "stress"
+    ],
+    "note": ""
+   },
+   {
+    "name": "bmi",
+    "kind": "continuous",
+    "n_missing": 0,
+    "n_unique": 200,
+    "encoded_as": [
+     "bmi"
+    ],
+    "note": ""
+   },
+   {
+    "name": "blood_pressure",
+    "kind": "continuous",
+    "n_missing": 0,
+    "n_unique": 200,
+    "encoded_as": [
+     "blood_pressure"
+    ],
+    "note": ""
+   },
+   {
+    "name": "age",
+    "kind": "continuous",
+    "n_missing": 0,
+    "n_unique": 200,
+    "encoded_as": [
+     "age"
+    ],
+    "note": ""
+   },
+   {
+    "name": "coffee_cups",
+    "kind": "continuous",
+    "n_missing": 0,
+    "n_unique": 200,
+    "encoded_as": [
+     "coffee_cups"
+    ],
+    "note": ""
+   },
+   {
+    "name": "income",
+    "kind": "continuous",
+    "n_missing": 0,
+    "n_unique": 200,
+    "encoded_as": [
+     "income"
+    ],
+    "note": ""
+   }
+  ],
+  "adjustment_set": [],
+  "notes": [
+   "Rows with any missing value were left out of the search."
+  ],
+  "roles": {
+   "treatment": null,
+   "outcome": null,
+   "post_treatment": [],
+   "randomized": false
+  }
+ },
+ "claim": null,
+ "design": null,
+ "estimand": null,
+ "sections": [
+  {
+   "key": "missing",
+   "title": "Missing values",
+   "status": "tested_concern",
+   "summary": "7% of rows have a missing value; most are in income.",
+   "metrics": {
+    "rows_with_missing": 190,
+    "share": 0.073
+   },
+   "assumptions": [
+    {
+     "key": "mcar",
+     "name": "Missingness looks unrelated to other columns",
+     "status": "tested_concern",
+     "detail": "Missing income is more common for older people.",
+     "testable": true,
+     "source": "explore"
+    }
+   ],
+   "charts": [],
+   "warnings": [],
+   "caps_verdict": false,
+   "affects_grade": true,
+   "error": null
+  },
+  {
+   "key": "sample",
+   "title": "Is there enough data?",
+   "status": "tested_ok",
+   "summary": "2,410 complete rows is enough for tests among 8 columns.",
+   "metrics": {
+    "rows": 2410,
+    "columns": 8
+   },
+   "assumptions": [
+    {
+     "key": "sample_size",
+     "name": "Enough rows for the tests",
+     "status": "tested_ok",
+     "detail": "",
+     "testable": true,
+     "source": "explore"
+    }
+   ],
+   "charts": [],
+   "warnings": [],
+   "caps_verdict": false,
+   "affects_grade": true,
+   "error": null
+  },
+  {
+   "key": "types",
+   "title": "Column types",
+   "status": "failed",
+   "summary": "Two columns could not be used.",
+   "metrics": {
+    "unusable": [
+     "notes",
+     "visit_date"
+    ]
+   },
+   "assumptions": [
+    {
+     "key": "usable",
+     "name": "Columns are usable for the search",
+     "status": "failed",
+     "detail": "notes is free text; visit_date is a date.",
+     "testable": true,
+     "source": "explore"
+    }
+   ],
+   "charts": [],
+   "warnings": [
+    "Free-text columns are ignored."
+   ],
+   "caps_verdict": false,
+   "affects_grade": true,
+   "error": null
+  },
+  {
+   "key": "empty_chart",
+   "title": "Empty chart test (dev)",
+   "status": null,
+   "summary": "Charts with no data should not crash.",
+   "metrics": {},
+   "assumptions": [],
+   "charts": [
+    {
+     "kind": "bar",
+     "title": "empty bar",
+     "data": {
+      "labels": [],
+      "values": []
+     },
+     "x_label": "",
+     "y_label": "",
+     "note": ""
+    },
+    {
+     "kind": "line",
+     "title": "empty line",
+     "data": {
+      "series": []
+     },
+     "x_label": "",
+     "y_label": "",
+     "note": ""
+    },
+    {
+     "kind": "forest",
+     "title": "empty forest",
+     "data": {
+      "rows": []
+     },
+     "x_label": "",
+     "y_label": "",
+     "note": ""
+    },
+    {
+     "kind": "scatter",
+     "title": "nulls",
+     "data": {
+      "points": [
+       {
+        "x": null,
+        "y": null
+       }
+      ]
+     },
+     "x_label": "",
+     "y_label": "",
+     "note": ""
+    },
+    {
+     "kind": "dag",
+     "title": "empty dag",
+     "data": {
+      "nodes": [],
+      "edges": []
+     },
+     "x_label": "",
+     "y_label": "",
+     "note": ""
+    },
+    {
+     "kind": "hist",
+     "title": "empty hist",
+     "data": {
+      "bins": [],
+      "series": []
+     },
+     "x_label": "",
+     "y_label": "",
+     "note": ""
+    }
+   ],
+   "warnings": [],
+   "caps_verdict": false,
+   "affects_grade": true,
+   "error": null
+  }
+ ],
+ "estimate": null,
+ "verdict": null,
+ "assumed_panel": [],
+ "explore": {
+  "key": "explore",
+  "title": "What may cause what",
+  "status": null,
+  "summary": "We found 8 links among 8 columns. Arrows are the directions the data supports; they are leads, not proof: hidden causes and selection can mimic any of them.",
+  "metrics": {
+   "n_columns_used": 8,
+   "n_rows_used": 2410,
+   "method": "constraint-based search (FCI) with 0.05 tests",
+   "pairs": [
+    {
+     "a": "exercise_hours",
+     "b": "bmi",
+     "link": "->",
+     "correlation": 0.1779,
+     "confidence": 0.86,
+     "reading": "More exercise goes with lower BMI; direction supported by the pattern of independences."
+    },
+    {
+     "a": "bmi",
+     "b": "blood_pressure",
+     "link": "->",
+     "correlation": 0.3245,
+     "confidence": 0.79,
+     "reading": "Higher BMI goes with higher blood pressure; direction supported."
+    },
+    {
+     "a": "age",
+     "b": "blood_pressure",
+     "link": "->",
+     "correlation": 0.348,
+     "confidence": 0.91,
+     "reading": "Age comes before blood pressure; direction fixed by time order."
+    },
+    {
+     "a": "stress",
+     "b": "sleep_hours",
+     "link": "o->",
+     "correlation": 0.4809,
+     "confidence": 0.62,
+     "reading": "Linked; stress likely affects sleep, but sleep could also affect stress."
+    },
+    {
+     "a": "coffee_cups",
+     "b": "sleep_hours",
+     "link": "o-o",
+     "correlation": 0.1992,
+     "confidence": 0.48,
+     "reading": "Linked; direction cannot be told from this data."
+    },
+    {
+     "a": "stress",
+     "b": "blood_pressure",
+     "link": "<->",
+     "correlation": 0.2513,
+     "confidence": 0.55,
+     "reading": "Their link is best explained by a hidden common cause."
+    },
+    {
+     "a": "income",
+     "b": "exercise_hours",
+     "link": "o->",
+     "correlation": 0.5817,
+     "confidence": 0.58,
+     "reading": "Linked; income likely comes first, not certain."
+    },
+    {
+     "a": "age",
+     "b": "income",
+     "link": "o-o",
+     "correlation": 0.4824,
+     "confidence": 0.44,
+     "reading": "Linked; direction unclear."
+    }
+   ],
+   "dropped_columns": [
+    "patient_id",
+    "visit_date"
+   ]
+  },
+  "assumptions": [
+   {
+    "key": "no_selection",
+    "name": "Rows were not selected based on these variables",
+    "status": "assumed",
+    "detail": "If only some kinds of people are in the data, links can appear that are not causal.",
+    "testable": false,
+    "source": "explore"
+   },
+   {
+    "key": "faithfulness",
+    "name": "No exact cancellations between paths",
+    "status": "assumed",
+    "detail": "Two effects that exactly cancel would hide a link.",
+    "testable": false,
+    "source": "explore"
+   }
+  ],
+  "charts": [
+   {
+    "kind": "dag",
+    "title": "What may cause what",
+    "data": {
+     "nodes": [
+      {
+       "id": "exercise_hours",
+       "role": "variable"
+      },
+      {
+       "id": "sleep_hours",
+       "role": "variable"
+      },
+      {
+       "id": "stress",
+       "role": "variable"
+      },
+      {
+       "id": "bmi",
+       "role": "variable"
+      },
+      {
+       "id": "blood_pressure",
+       "role": "variable"
+      },
+      {
+       "id": "age",
+       "role": "variable"
+      },
+      {
+       "id": "coffee_cups",
+       "role": "variable"
+      },
+      {
+       "id": "income",
+       "role": "variable"
+      }
+     ],
+     "edges": [
+      {
+       "from": "exercise_hours",
+       "to": "bmi",
+       "type": "directed",
+       "confidence": 0.86
+      },
+      {
+       "from": "bmi",
+       "to": "blood_pressure",
+       "type": "directed",
+       "confidence": 0.79
+      },
+      {
+       "from": "age",
+       "to": "blood_pressure",
+       "type": "directed",
+       "confidence": 0.91
+      },
+      {
+       "from": "stress",
+       "to": "sleep_hours",
+       "type": "partial",
+       "confidence": 0.62
+      },
+      {
+       "from": "coffee_cups",
+       "to": "sleep_hours",
+       "type": "undirected",
+       "confidence": 0.48
+      },
+      {
+       "from": "stress",
+       "to": "blood_pressure",
+       "type": "bidirected",
+       "label": "hidden cause",
+       "confidence": 0.55
+      },
+      {
+       "from": "income",
+       "to": "exercise_hours",
+       "type": "partial",
+       "confidence": 0.58
+      },
+      {
+       "from": "age",
+       "to": "income",
+       "type": "undirected",
+       "confidence": 0.44
+      }
+     ]
+    },
+    "x_label": "",
+    "y_label": "",
+    "note": ""
+   },
+   {
+    "kind": "hist",
+    "title": "Strength of all pairwise correlations",
+    "data": {
+     "bins": [
+      0,
+      0.1,
+      0.2,
+      0.3,
+      0.4,
+      0.5,
+      0.6
+     ],
+     "series": [
+      {
+       "name": "pairs",
+       "counts": [
+        9,
+        6,
+        5,
+        3,
+        4,
+        1
+       ]
+      }
+     ]
+    },
+    "x_label": "absolute correlation",
+    "y_label": "pairs",
+    "note": ""
+   }
+  ],
+  "warnings": [
+   "Only 2,410 of 2,600 rows have all columns; 190 rows with missing values were left out of the search."
+  ],
+  "caps_verdict": false,
+  "affects_grade": true,
+  "error": null
+ },
+ "suggestion": null,
+ "dag": null,
+ "errors": [
+  "The literature search was skipped: no claim, so there are no words to search for."
+ ],
+ "needs_input": []
+}

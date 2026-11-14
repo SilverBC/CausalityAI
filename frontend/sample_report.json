@@ -1,0 +1,1958 @@
+{
+ "mode": "audit",
+ "data": {
+  "n_rows": 1723,
+  "n_columns": 11,
+  "n_duplicates": 4,
+  "columns": [
+   {
+    "name": "student_id",
+    "kind": "id",
+    "n_missing": 0,
+    "n_unique": 1719,
+    "encoded_as": [],
+    "note": "used as unit id"
+   },
+   {
+    "name": "tutoring",
+    "kind": "binary",
+    "n_missing": 0,
+    "n_unique": 2,
+    "encoded_as": [
+     "tutoring"
+    ],
+    "note": ""
+   },
+   {
+    "name": "test_score",
+    "kind": "continuous",
+    "n_missing": 142,
+    "n_unique": 611,
+    "encoded_as": [
+     "test_score"
+    ],
+    "note": "not imputed (outcome)"
+   },
+   {
+    "name": "age",
+    "kind": "count",
+    "n_missing": 0,
+    "n_unique": 6,
+    "encoded_as": [
+     "age"
+    ],
+    "note": ""
+   },
+   {
+    "name": "prior_score",
+    "kind": "continuous",
+    "n_missing": 31,
+    "n_unique": 540,
+    "encoded_as": [
+     "prior_score",
+     "prior_score__missing"
+    ],
+    "note": "31 values filled with the median"
+   },
+   {
+    "name": "parent_income",
+    "kind": "continuous",
+    "n_missing": 88,
+    "n_unique": 402,
+    "encoded_as": [
+     "parent_income",
+     "parent_income__missing"
+    ],
+    "note": "88 values filled with the median"
+   },
+   {
+    "name": "school_size",
+    "kind": "count",
+    "n_missing": 0,
+    "n_unique": 48,
+    "encoded_as": [
+     "school_size"
+    ],
+    "note": ""
+   },
+   {
+    "name": "female",
+    "kind": "binary",
+    "n_missing": 0,
+    "n_unique": 2,
+    "encoded_as": [
+     "female"
+    ],
+    "note": ""
+   },
+   {
+    "name": "days_absent",
+    "kind": "count",
+    "n_missing": 0,
+    "n_unique": 27,
+    "encoded_as": [
+     "days_absent"
+    ],
+    "note": ""
+   },
+   {
+    "name": "homework_hours",
+    "kind": "continuous",
+    "n_missing": 5,
+    "n_unique": 120,
+    "encoded_as": [
+     "homework_hours"
+    ],
+    "note": "marked as measured after treatment"
+   },
+   {
+    "name": "school_id",
+    "kind": "categorical",
+    "n_missing": 0,
+    "n_unique": 48,
+    "encoded_as": [],
+    "note": "too many categories to one-hot; used as cluster"
+   }
+  ],
+  "adjustment_set": [
+   "age",
+   "prior_score",
+   "prior_score__missing",
+   "parent_income",
+   "parent_income__missing",
+   "school_size",
+   "female",
+   "days_absent"
+  ],
+  "notes": [
+   "4 duplicate rows found; they were kept, not deleted.",
+   "142 rows have no test score; they are left out of the estimate but counted in the missing-outcome check.",
+   "Population filter applied: parent_income <= 40000 (812 rows)."
+  ],
+  "roles": {
+   "treatment": "tutoring",
+   "outcome": "test_score",
+   "unit": "student_id",
+   "time": null,
+   "instrument": null,
+   "running": null,
+   "cutoff": null,
+   "cluster": "school_id",
+   "strata": null,
+   "post_treatment": [
+    "homework_hours"
+   ],
+   "randomized": false,
+   "saturation": null
+  }
+ },
+ "claim": {
+  "raw": "Tutoring increases test scores by 15% among low-income students",
+  "treatment_phrase": "tutoring",
+  "outcome_phrase": "test scores",
+  "treatment_col": "tutoring",
+  "outcome_col": "test_score",
+  "treatment_score": 1.0,
+  "outcome_score": 0.91,
+  "needs_confirmation": false,
+  "candidates": {},
+  "direction": "increase",
+  "negated": false,
+  "size": 15,
+  "size_unit": "percent",
+  "bound": "about",
+  "shape": null,
+  "population_phrase": "low-income students",
+  "population_filter": {
+   "column": "parent_income",
+   "op": "<=",
+   "value": 40000
+  },
+  "population_score": 0.83,
+  "hedges": [],
+  "testable": true,
+  "untestable_reason": null,
+  "estimand": null,
+  "notes": [
+   "'low-income' was read as parent_income at or below 40,000 (the bottom third)."
+  ]
+ },
+ "design": {
+  "kind": "observational",
+  "declared": false,
+  "scores": {
+   "experiment": 0.0,
+   "did": 0.41,
+   "iv": 0.05,
+   "rd": 0.12,
+   "observational": 0.78
+  },
+  "ambiguous": false,
+  "question": null,
+  "reasons": [
+   "Treatment was not declared randomized.",
+   "There is no clear cutoff or instrument; years exist but most students appear once."
+  ],
+  "conflicts": [],
+  "assumptions": [
+   {
+    "key": "no_unmeasured_confounding",
+    "name": "No hidden common causes of tutoring and test scores",
+    "status": "assumed",
+    "detail": "Things like motivation or parental involvement are not in the data. If they drive both tutoring and scores, the estimate is biased.",
+    "testable": false,
+    "source": "design.observational"
+   },
+   {
+    "key": "consistency",
+    "name": "'Tutoring' means the same thing for everyone",
+    "status": "assumed",
+    "detail": "Different tutors, hours and formats are lumped together as one treatment.",
+    "testable": false,
+    "source": "design"
+   },
+   {
+    "key": "positivity",
+    "name": "Everyone had some chance of each option",
+    "status": "tested_ok",
+    "detail": "See the overlap check.",
+    "testable": true,
+    "source": "design.observational"
+   }
+  ],
+  "grade": "C",
+  "grade_reasons": [
+   "Observational design: hidden causes cannot be ruled out.",
+   "Groups were already diverging before tutoring (pre-trend test failed).",
+   "Balance is good after weighting except days absent.",
+   "Missing outcomes differ by group."
+  ]
+ },
+ "estimand": {
+  "treatment": "tutoring",
+  "outcome": "test_score",
+  "contrast": "relative",
+  "target": "ATE",
+  "population": "students with parent_income <= 40000",
+  "text": "The average change in test score if every low-income student were tutored versus none, as a percent of the untutored mean."
+ },
+ "sections": [
+  {
+   "key": "balance",
+   "title": "Are the groups comparable?",
+   "status": "tested_concern",
+   "summary": "Before weighting, tutored students had higher prior scores and incomes. After weighting, all but one covariate are well balanced; days absent still differs.",
+   "metrics": {
+    "max_abs_smd_before": 0.42,
+    "max_abs_smd_after": 0.12,
+    "n_covariates": 6,
+    "threshold": 0.1,
+    "suspected_post_treatment": [
+     "homework_hours"
+    ],
+    "weights_effective_n": 1312.4
+   },
+   "assumptions": [
+    {
+     "key": "covariate_balance",
+     "name": "Groups look alike on measured columns after weighting",
+     "status": "tested_concern",
+     "detail": "days_absent: standardized difference 0.12 (above 0.1).",
+     "testable": true,
+     "source": "balance"
+    }
+   ],
+   "charts": [
+    {
+     "kind": "bar",
+     "title": "Covariate imbalance after weighting (standardized difference)",
+     "data": {
+      "labels": [
+       "age",
+       "prior_score",
+       "parent_income",
+       "school_size",
+       "female",
+       "days_absent"
+      ],
+      "values": [
+       0.04,
+       0.07,
+       -0.05,
+       0.02,
+       0.01,
+       -0.12
+      ],
+      "errors": null,
+      "ref": 0.1,
+      "ref_band": [
+       -0.1,
+       0.1
+      ]
+     },
+     "x_label": "standardized mean difference",
+     "y_label": "",
+     "note": ""
+    },
+    {
+     "kind": "bar",
+     "title": "Before weighting",
+     "data": {
+      "labels": [
+       "age",
+       "prior_score",
+       "parent_income",
+       "school_size",
+       "female",
+       "days_absent"
+      ],
+      "values": [
+       0.31,
+       0.42,
+       -0.27,
+       0.08,
+       0.03,
+       -0.18
+      ],
+      "errors": null,
+      "ref": 0.1
+     },
+     "x_label": "standardized mean difference",
+     "y_label": "",
+     "note": ""
+    }
+   ],
+   "warnings": [
+    "homework_hours looks like it was measured after tutoring started; we left it out of the adjustment set."
+   ],
+   "caps_verdict": false,
+   "affects_grade": true,
+   "error": null
+  },
+  {
+   "key": "overlap",
+   "title": "Do the groups overlap?",
+   "status": "tested_ok",
+   "summary": "Almost every tutored student has comparable untutored students. 23 rows with extreme chances were trimmed.",
+   "metrics": {
+    "min_propensity": 0.04,
+    "max_propensity": 0.93,
+    "n_trimmed": 23,
+    "share_trimmed": 0.0135,
+    "propensity_raw": [
+     0.5338314915591927,
+     0.1484073358772482,
+     0.12392004960501535,
+     0.1313692993312363,
+     0.29359946337035425,
+     0.4065440340142321,
+     0.2883071472802162,
+     0.24340069097228978,
+     0.08784722343387885,
+     0.5463145992693857,
+     0.8397472236614031,
+     0.609952603987117,
+     0.570179233116031,
+     0.6503573461372513,
+     0.20119186154435664,
+     0.7103598368675541,
+     0.46088343033052526,
+     0.5480297453977261,
+     0.6127996852834213,
+     0.46896559610083455,
+     0.31050454103173564,
+     0.24225444595267198,
+     0.2215805961847609,
+     0.5124494995617538,
+     0.3831716699123814,
+     0.5856833189461705,
+     0.011878147156476504,
+     0.3526529011301285,
+     0.8618652146464455,
+     0.23854146394098186,
+     0.5566531965544653,
+     0.4914073517168156,
+     0.28481998203972425,
+     0.9875105188499467,
+     0.2955042575069333,
+     0.7721285970642104,
+     0.15856668018645437,
+     0.06679881815555877,
+     0.8712729316055395,
+     0.4399861295351257
+    ]
+   },
+   "assumptions": [
+    {
+     "key": "positivity",
+     "name": "Everyone had some chance of each option",
+     "status": "tested_ok",
+     "detail": "Estimated chances lie between 0.04 and 0.93.",
+     "testable": true,
+     "source": "overlap"
+    }
+   ],
+   "charts": [
+    {
+     "kind": "hist",
+     "title": "Chance of being tutored, by group",
+     "data": {
+      "bins": [
+       0.0,
+       0.05,
+       0.1,
+       0.15,
+       0.2,
+       0.25,
+       0.3,
+       0.35,
+       0.4,
+       0.45,
+       0.5,
+       0.55,
+       0.6,
+       0.65,
+       0.7,
+       0.75,
+       0.8,
+       0.85,
+       0.9,
+       0.95,
+       1.0
+      ],
+      "series": [
+       {
+        "name": "tutored",
+        "counts": [
+         0,
+         0,
+         2,
+         6,
+         5,
+         18,
+         23,
+         25,
+         43,
+         48,
+         60,
+         84,
+         71,
+         73,
+         56,
+         36,
+         27,
+         11,
+         4,
+         6
+        ]
+       },
+       {
+        "name": "not tutored",
+        "counts": [
+         15,
+         26,
+         40,
+         53,
+         74,
+         135,
+         113,
+         141,
+         140,
+         128,
+         89,
+         61,
+         41,
+         21,
+         12,
+         10,
+         0,
+         0,
+         0,
+         0
+        ]
+       }
+      ]
+     },
+     "x_label": "estimated chance of being tutored",
+     "y_label": "rows",
+     "note": ""
+    }
+   ],
+   "warnings": [],
+   "caps_verdict": false,
+   "affects_grade": true,
+   "error": null
+  },
+  {
+   "key": "missing_outcomes",
+   "title": "Missing test scores",
+   "status": "tested_concern",
+   "summary": "Scores are missing more often for tutored students (12% vs 5%). The verdict cannot be better than Inconclusive on size until this is explained.",
+   "metrics": {
+    "share_missing_treated": 0.12,
+    "share_missing_control": 0.05,
+    "p_value_difference": 0.0003,
+    "bounds": {
+     "lower": -0.8,
+     "upper": 9.6
+    }
+   },
+   "assumptions": [
+    {
+     "key": "missing_balanced",
+     "name": "Missing scores are equally common in both groups",
+     "status": "tested_concern",
+     "detail": "12% vs 5%, difference unlikely to be chance (p = 0.0003).",
+     "testable": true,
+     "source": "missing_outcomes"
+    },
+    {
+     "key": "missing_not_outcome_related",
+     "name": "Scores are not missing because of the score itself",
+     "status": "assumed",
+     "detail": "12% of tutored and 5% of untutored scores are missing. If low scorers skipped the test more often, the estimate is too high.",
+     "testable": false,
+     "source": "missing_outcomes"
+    }
+   ],
+   "charts": [
+    {
+     "kind": "bar",
+     "title": "Share of test scores missing",
+     "data": {
+      "labels": [
+       "tutored",
+       "not tutored"
+      ],
+      "values": [
+       0.12,
+       0.05
+      ],
+      "errors": [
+       0.015,
+       0.008
+      ],
+      "ref": null
+     },
+     "x_label": "share missing",
+     "y_label": "",
+     "note": ""
+    }
+   ],
+   "warnings": [],
+   "caps_verdict": true,
+   "affects_grade": true,
+   "error": null
+  },
+  {
+   "key": "hidden_confounding",
+   "title": "How much would a hidden cause change this?",
+   "status": "tested_concern",
+   "summary": "A hidden cause that changed the odds of being tutored by about 2.1x and also moved scores could explain the whole effect. That is weaker than the effect of prior score (3.4x).",
+   "metrics": {
+    "e_value": 2.1,
+    "e_value_ci": 1.45,
+    "benchmark": {
+     "column": "prior_score",
+     "odds_multiplier": 3.4
+    }
+   },
+   "assumptions": [
+    {
+     "key": "no_unmeasured_confounding",
+     "name": "No hidden common causes of tutoring and test scores",
+     "status": "assumed",
+     "detail": "Things like motivation or parental involvement are not in the data. If they drive both tutoring and scores, the estimate is biased.",
+     "testable": false,
+     "source": "design.observational"
+    }
+   ],
+   "charts": [
+    {
+     "kind": "line",
+     "title": "How strong would a hidden cause need to be?",
+     "data": {
+      "series": [
+       {
+        "name": "effect bound",
+        "x": [
+         1.0,
+         1.25,
+         1.5,
+         1.75,
+         2.0,
+         2.25,
+         2.5,
+         2.75,
+         3.0,
+         3.25,
+         3.5,
+         3.75,
+         4.0
+        ],
+        "y": [
+         6.0,
+         5.8,
+         5.6,
+         5.4,
+         5.2,
+         5.0,
+         4.8,
+         4.6,
+         4.4,
+         4.2,
+         4.0,
+         3.8,
+         3.6
+        ],
+        "lo": [
+         3.9,
+         3.4,
+         2.9,
+         2.4,
+         1.9,
+         1.4,
+         0.9,
+         0.4,
+         -0.1,
+         -0.6,
+         -1.1,
+         -1.6,
+         -2.1
+        ],
+        "hi": [
+         8.1,
+         8.2,
+         8.3,
+         8.4,
+         8.5,
+         8.6,
+         8.7,
+         8.8,
+         8.9,
+         9.0,
+         9.1,
+         9.2,
+         9.3
+        ]
+       }
+      ],
+      "vline": 2.1,
+      "hline": 0
+     },
+     "x_label": "strength of a hidden cause (odds multiplier)",
+     "y_label": "effect (points)",
+     "note": "The interval reaches zero once a hidden cause changes the odds of tutoring by about 2.1x."
+    }
+   ],
+   "warnings": [],
+   "caps_verdict": false,
+   "affects_grade": true,
+   "error": null
+  },
+  {
+   "key": "interference",
+   "title": "Do students affect each other?",
+   "status": null,
+   "summary": "Tutoring was not randomized at the school level, so spillovers cannot be tested.",
+   "metrics": {
+    "n_clusters": 48
+   },
+   "assumptions": [
+    {
+     "key": "no_interference",
+     "name": "One student's tutoring does not change another student's score",
+     "status": "assumed",
+     "detail": "Students in the same school may share tutors or notes. The data cannot rule this out because tutoring was not assigned at random across schools.",
+     "testable": false,
+     "source": "interference"
+    }
+   ],
+   "charts": [],
+   "warnings": [],
+   "caps_verdict": false,
+   "affects_grade": true,
+   "error": null
+  },
+  {
+   "key": "design.pretrends",
+   "title": "Were the groups already diverging before tutoring?",
+   "status": "failed",
+   "summary": "Tutored students' scores were already rising faster before the program started (difference in yearly slope 0.9 points, p = 0.01).",
+   "metrics": {
+    "pre_slope_difference": 0.9,
+    "p_value": 0.012,
+    "years_before": 2
+   },
+   "assumptions": [
+    {
+     "key": "parallel_trends",
+     "name": "Groups moved in parallel before treatment",
+     "status": "failed",
+     "detail": "Pre-period slopes differ by 0.9 points per year.",
+     "testable": true,
+     "source": "design.did"
+    }
+   ],
+   "charts": [
+    {
+     "kind": "line",
+     "title": "Scores by year, tutored vs. not (pre-trends)",
+     "data": {
+      "series": [
+       {
+        "name": "tutored",
+        "x": [
+         2018,
+         2019,
+         2020,
+         2021,
+         2022
+        ],
+        "y": [
+         61,
+         62,
+         null,
+         67.5,
+         69
+        ],
+        "lo": [
+         59.5,
+         60.6,
+         null,
+         66,
+         67.4
+        ],
+        "hi": [
+         62.5,
+         63.4,
+         null,
+         69,
+         70.6
+        ]
+       },
+       {
+        "name": "not tutored",
+        "x": [
+         2018,
+         2019,
+         2020,
+         2021,
+         2022
+        ],
+        "y": [
+         58,
+         58.6,
+         59.4,
+         60,
+         60.8
+        ],
+        "lo": null,
+        "hi": null
+       }
+      ],
+      "vline": 2020.5,
+      "hline": null
+     },
+     "x_label": "school year",
+     "y_label": "mean test score",
+     "note": ""
+    }
+   ],
+   "warnings": [],
+   "caps_verdict": false,
+   "affects_grade": true,
+   "error": null
+  },
+  {
+   "key": "design.placebo",
+   "title": "Placebo test at a fake cutoff",
+   "status": "tested_ok",
+   "summary": "No jump at a cutoff where nothing changed (jump 1.0, 95% interval -1.4 to 3.4).",
+   "metrics": {
+    "placebo_jump": 1.0,
+    "ci95": [
+     -1.4,
+     3.4
+    ]
+   },
+   "assumptions": [
+    {
+     "key": "placebo",
+     "name": "No effect where there should be none",
+     "status": "tested_ok",
+     "detail": "Interval includes zero.",
+     "testable": true,
+     "source": "design"
+    }
+   ],
+   "charts": [
+    {
+     "kind": "scatter",
+     "title": "Placebo cutoff at an earlier grade",
+     "data": {
+      "points": [
+       {
+        "x": -9.811,
+        "y": 56.13,
+        "group": "below cutoff"
+       },
+       {
+        "x": -1.611,
+        "y": 52.27,
+        "group": "below cutoff"
+       },
+       {
+        "x": -16.49,
+        "y": 55.8,
+        "group": "below cutoff"
+       },
+       {
+        "x": -10.69,
+        "y": 49.28,
+        "group": "below cutoff"
+       },
+       {
+        "x": 3.184,
+        "y": 68.91,
+        "group": "above cutoff"
+       },
+       {
+        "x": 0.8743,
+        "y": 56.33,
+        "group": "above cutoff"
+       },
+       {
+        "x": -0.9366,
+        "y": 57.43,
+        "group": "below cutoff"
+       },
+       {
+        "x": -12.31,
+        "y": 53.7,
+        "group": "below cutoff"
+       },
+       {
+        "x": -12.77,
+        "y": 53.74,
+        "group": "below cutoff"
+       },
+       {
+        "x": 2.577,
+        "y": 58.41,
+        "group": "above cutoff"
+       },
+       {
+        "x": -3.9,
+        "y": 56.18,
+        "group": "below cutoff"
+       },
+       {
+        "x": -18.22,
+        "y": 52.47,
+        "group": "below cutoff"
+       },
+       {
+        "x": 19.89,
+        "y": 67.62,
+        "group": "above cutoff"
+       },
+       {
+        "x": 5.31,
+        "y": 64.47,
+        "group": "above cutoff"
+       },
+       {
+        "x": 11.49,
+        "y": 68.6,
+        "group": "above cutoff"
+       },
+       {
+        "x": -6.203,
+        "y": 62.0,
+        "group": "below cutoff"
+       },
+       {
+        "x": 0.7783,
+        "y": 62.35,
+        "group": "above cutoff"
+       },
+       {
+        "x": 19.62,
+        "y": 68.98,
+        "group": "above cutoff"
+       },
+       {
+        "x": 14.64,
+        "y": 61.7,
+        "group": "above cutoff"
+       },
+       {
+        "x": -9.536,
+        "y": 56.63,
+        "group": "below cutoff"
+       },
+       {
+        "x": 11.17,
+        "y": 56.82,
+        "group": "above cutoff"
+       },
+       {
+        "x": 10.69,
+        "y": 69.62,
+        "group": "above cutoff"
+       },
+       {
+        "x": 12.75,
+        "y": 69.08,
+        "group": "above cutoff"
+       },
+       {
+        "x": -18.49,
+        "y": 51.91,
+        "group": "below cutoff"
+       },
+       {
+        "x": -11.96,
+        "y": 55.92,
+        "group": "below cutoff"
+       },
+       {
+        "x": -17.96,
+        "y": 54.33,
+        "group": "below cutoff"
+       },
+       {
+        "x": 2.295,
+        "y": 64.96,
+        "group": "above cutoff"
+       },
+       {
+        "x": 17.89,
+        "y": 64.94,
+        "group": "above cutoff"
+       },
+       {
+        "x": 16.4,
+        "y": 72.53,
+        "group": "above cutoff"
+       },
+       {
+        "x": -4.104,
+        "y": 60.48,
+        "group": "below cutoff"
+       },
+       {
+        "x": -15.2,
+        "y": 56.9,
+        "group": "below cutoff"
+       },
+       {
+        "x": 2.579,
+        "y": 61.25,
+        "group": "above cutoff"
+       },
+       {
+        "x": 5.625,
+        "y": 68.98,
+        "group": "above cutoff"
+       },
+       {
+        "x": -4.275,
+        "y": 56.68,
+        "group": "below cutoff"
+       },
+       {
+        "x": -2.066,
+        "y": 64.76,
+        "group": "below cutoff"
+       },
+       {
+        "x": 19.67,
+        "y": 77.63,
+        "group": "above cutoff"
+       },
+       {
+        "x": -11.13,
+        "y": 58.53,
+        "group": "below cutoff"
+       },
+       {
+        "x": -5.92,
+        "y": 58.37,
+        "group": "below cutoff"
+       },
+       {
+        "x": 16.11,
+        "y": 73.74,
+        "group": "above cutoff"
+       },
+       {
+        "x": -18.12,
+        "y": 48.45,
+        "group": "below cutoff"
+       },
+       {
+        "x": 11.45,
+        "y": 64.13,
+        "group": "above cutoff"
+       },
+       {
+        "x": 19.42,
+        "y": 63.18,
+        "group": "above cutoff"
+       },
+       {
+        "x": -17.77,
+        "y": 57.01,
+        "group": "below cutoff"
+       },
+       {
+        "x": 17.58,
+        "y": 73.33,
+        "group": "above cutoff"
+       },
+       {
+        "x": 7.076,
+        "y": 62.21,
+        "group": "above cutoff"
+       },
+       {
+        "x": 10.32,
+        "y": 70.23,
+        "group": "above cutoff"
+       },
+       {
+        "x": -15.78,
+        "y": 52.31,
+        "group": "below cutoff"
+       },
+       {
+        "x": -15.03,
+        "y": 56.74,
+        "group": "below cutoff"
+       },
+       {
+        "x": -0.7475,
+        "y": 61.15,
+        "group": "below cutoff"
+       },
+       {
+        "x": -14.27,
+        "y": 56.86,
+        "group": "below cutoff"
+       },
+       {
+        "x": 7.106,
+        "y": 70.18,
+        "group": "above cutoff"
+       },
+       {
+        "x": -12.2,
+        "y": 55.63,
+        "group": "below cutoff"
+       },
+       {
+        "x": -18.56,
+        "y": 55.11,
+        "group": "below cutoff"
+       },
+       {
+        "x": 17.36,
+        "y": 66.7,
+        "group": "above cutoff"
+       },
+       {
+        "x": 14.67,
+        "y": 68.55,
+        "group": "above cutoff"
+       },
+       {
+        "x": -2.11,
+        "y": 57.74,
+        "group": "below cutoff"
+       },
+       {
+        "x": -16.12,
+        "y": 60.48,
+        "group": "below cutoff"
+       },
+       {
+        "x": 5.135,
+        "y": 59.73,
+        "group": "above cutoff"
+       },
+       {
+        "x": -1.907,
+        "y": 55.26,
+        "group": "below cutoff"
+       },
+       {
+        "x": -0.8985,
+        "y": 65.93,
+        "group": "below cutoff"
+       },
+       {
+        "x": 5.127,
+        "y": 64.82,
+        "group": "above cutoff"
+       },
+       {
+        "x": -17.73,
+        "y": 55.12,
+        "group": "below cutoff"
+       },
+       {
+        "x": 8.549,
+        "y": 62.31,
+        "group": "above cutoff"
+       },
+       {
+        "x": 14.83,
+        "y": 66.2,
+        "group": "above cutoff"
+       },
+       {
+        "x": -9.344,
+        "y": 54.28,
+        "group": "below cutoff"
+       },
+       {
+        "x": -9.156,
+        "y": 57.56,
+        "group": "below cutoff"
+       },
+       {
+        "x": 13.58,
+        "y": 65.21,
+        "group": "above cutoff"
+       },
+       {
+        "x": -0.3597,
+        "y": 61.95,
+        "group": "below cutoff"
+       },
+       {
+        "x": -7.277,
+        "y": 58.71,
+        "group": "below cutoff"
+       },
+       {
+        "x": 19.14,
+        "y": 67.53,
+        "group": "above cutoff"
+       },
+       {
+        "x": -17.73,
+        "y": 57.61,
+        "group": "below cutoff"
+       },
+       {
+        "x": -11.55,
+        "y": 51.74,
+        "group": "below cutoff"
+       },
+       {
+        "x": -0.9018,
+        "y": 58.94,
+        "group": "below cutoff"
+       },
+       {
+        "x": -11.94,
+        "y": 58.23,
+        "group": "below cutoff"
+       },
+       {
+        "x": -5.429,
+        "y": 71.96,
+        "group": "below cutoff"
+       },
+       {
+        "x": 17.0,
+        "y": 67.0,
+        "group": "above cutoff"
+       },
+       {
+        "x": -16.1,
+        "y": 51.47,
+        "group": "below cutoff"
+       },
+       {
+        "x": -17.7,
+        "y": 61.17,
+        "group": "below cutoff"
+       },
+       {
+        "x": 9.059,
+        "y": 61.63,
+        "group": "above cutoff"
+       },
+       {
+        "x": -19.36,
+        "y": 62.94,
+        "group": "below cutoff"
+       },
+       {
+        "x": 12.28,
+        "y": 64.72,
+        "group": "above cutoff"
+       },
+       {
+        "x": -19.92,
+        "y": 53.88,
+        "group": "below cutoff"
+       },
+       {
+        "x": 13.29,
+        "y": 63.79,
+        "group": "above cutoff"
+       },
+       {
+        "x": -2.59,
+        "y": 58.54,
+        "group": "below cutoff"
+       },
+       {
+        "x": 16.48,
+        "y": 68.62,
+        "group": "above cutoff"
+       },
+       {
+        "x": -14.48,
+        "y": 59.31,
+        "group": "below cutoff"
+       },
+       {
+        "x": -12.79,
+        "y": 55.69,
+        "group": "below cutoff"
+       },
+       {
+        "x": -12.13,
+        "y": 48.89,
+        "group": "below cutoff"
+       },
+       {
+        "x": -16.83,
+        "y": 57.94,
+        "group": "below cutoff"
+       },
+       {
+        "x": -0.1808,
+        "y": 62.79,
+        "group": "below cutoff"
+       },
+       {
+        "x": -9.044,
+        "y": 57.88,
+        "group": "below cutoff"
+       },
+       {
+        "x": 8.31,
+        "y": 69.62,
+        "group": "above cutoff"
+       },
+       {
+        "x": 12.46,
+        "y": 63.65,
+        "group": "above cutoff"
+       },
+       {
+        "x": -17.37,
+        "y": 51.71,
+        "group": "below cutoff"
+       },
+       {
+        "x": 9.309,
+        "y": 59.36,
+        "group": "above cutoff"
+       },
+       {
+        "x": -17.79,
+        "y": 56.38,
+        "group": "below cutoff"
+       },
+       {
+        "x": 12.43,
+        "y": 62.05,
+        "group": "above cutoff"
+       },
+       {
+        "x": 14.58,
+        "y": 73.44,
+        "group": "above cutoff"
+       },
+       {
+        "x": -0.2793,
+        "y": 68.63,
+        "group": "below cutoff"
+       },
+       {
+        "x": -0.9354,
+        "y": 60.48,
+        "group": "below cutoff"
+       },
+       {
+        "x": 14.88,
+        "y": 66.69,
+        "group": "above cutoff"
+       },
+       {
+        "x": 13.26,
+        "y": 68.86,
+        "group": "above cutoff"
+       },
+       {
+        "x": -5.316,
+        "y": 59.87,
+        "group": "below cutoff"
+       },
+       {
+        "x": 3.796,
+        "y": 65.82,
+        "group": "above cutoff"
+       },
+       {
+        "x": -19.81,
+        "y": 47.76,
+        "group": "below cutoff"
+       },
+       {
+        "x": 0.625,
+        "y": 60.71,
+        "group": "above cutoff"
+       },
+       {
+        "x": -15.17,
+        "y": 52.31,
+        "group": "below cutoff"
+       },
+       {
+        "x": 14.62,
+        "y": 59.66,
+        "group": "above cutoff"
+       },
+       {
+        "x": -7.161,
+        "y": 56.19,
+        "group": "below cutoff"
+       },
+       {
+        "x": 10.05,
+        "y": 61.22,
+        "group": "above cutoff"
+       },
+       {
+        "x": -17.55,
+        "y": 59.9,
+        "group": "below cutoff"
+       },
+       {
+        "x": -0.2079,
+        "y": 52.8,
+        "group": "below cutoff"
+       },
+       {
+        "x": 0.5326,
+        "y": 56.34,
+        "group": "above cutoff"
+       },
+       {
+        "x": -19.17,
+        "y": 51.38,
+        "group": "below cutoff"
+       },
+       {
+        "x": 18.7,
+        "y": 68.9,
+        "group": "above cutoff"
+       },
+       {
+        "x": -15.89,
+        "y": 56.15,
+        "group": "below cutoff"
+       },
+       {
+        "x": -9.982,
+        "y": 56.41,
+        "group": "below cutoff"
+       },
+       {
+        "x": -16.14,
+        "y": 52.64,
+        "group": "below cutoff"
+       },
+       {
+        "x": 7.959,
+        "y": 64.44,
+        "group": "above cutoff"
+       },
+       {
+        "x": 3.976,
+        "y": 63.3,
+        "group": "above cutoff"
+       },
+       {
+        "x": 3.059,
+        "y": 56.06,
+        "group": "above cutoff"
+       },
+       {
+        "x": -15.89,
+        "y": 52.75,
+        "group": "below cutoff"
+       },
+       {
+        "x": 14.78,
+        "y": 66.66,
+        "group": "above cutoff"
+       },
+       {
+        "x": -15.08,
+        "y": 52.78,
+        "group": "below cutoff"
+       },
+       {
+        "x": -0.2563,
+        "y": 56.66,
+        "group": "below cutoff"
+       },
+       {
+        "x": -15.12,
+        "y": 53.94,
+        "group": "below cutoff"
+       },
+       {
+        "x": -3.774,
+        "y": 61.98,
+        "group": "below cutoff"
+       },
+       {
+        "x": 14.44,
+        "y": 70.84,
+        "group": "above cutoff"
+       },
+       {
+        "x": -14.11,
+        "y": 48.41,
+        "group": "below cutoff"
+       },
+       {
+        "x": -13.43,
+        "y": 51.7,
+        "group": "below cutoff"
+       },
+       {
+        "x": 13.04,
+        "y": 69.88,
+        "group": "above cutoff"
+       },
+       {
+        "x": -3.181,
+        "y": 57.21,
+        "group": "below cutoff"
+       },
+       {
+        "x": 13.59,
+        "y": 62.47,
+        "group": "above cutoff"
+       },
+       {
+        "x": 17.65,
+        "y": 67.42,
+        "group": "above cutoff"
+       },
+       {
+        "x": 11.08,
+        "y": 63.86,
+        "group": "above cutoff"
+       },
+       {
+        "x": -6.597,
+        "y": 59.88,
+        "group": "below cutoff"
+       },
+       {
+        "x": -2.577,
+        "y": 66.14,
+        "group": "below cutoff"
+       },
+       {
+        "x": 16.51,
+        "y": 66.75,
+        "group": "above cutoff"
+       },
+       {
+        "x": 12.6,
+        "y": 66.8,
+        "group": "above cutoff"
+       },
+       {
+        "x": 0.695,
+        "y": 60.19,
+        "group": "above cutoff"
+       },
+       {
+        "x": 18.31,
+        "y": 71.1,
+        "group": "above cutoff"
+       },
+       {
+        "x": -3.115,
+        "y": 57.54,
+        "group": "below cutoff"
+       },
+       {
+        "x": 5.308,
+        "y": 59.88,
+        "group": "above cutoff"
+       },
+       {
+        "x": -17.23,
+        "y": 56.81,
+        "group": "below cutoff"
+       },
+       {
+        "x": -2.678,
+        "y": 58.11,
+        "group": "below cutoff"
+       },
+       {
+        "x": -14.42,
+        "y": 54.21,
+        "group": "below cutoff"
+       },
+       {
+        "x": 18.79,
+        "y": 70.08,
+        "group": "above cutoff"
+       },
+       {
+        "x": 5.328,
+        "y": 53.86,
+        "group": "above cutoff"
+       },
+       {
+        "x": 12.37,
+        "y": 72.16,
+        "group": "above cutoff"
+       },
+       {
+        "x": -18.63,
+        "y": 47.03,
+        "group": "below cutoff"
+       },
+       {
+        "x": 5.663,
+        "y": 62.67,
+        "group": "above cutoff"
+       },
+       {
+        "x": -9.063,
+        "y": 62.37,
+        "group": "below cutoff"
+       },
+       {
+        "x": 1.69,
+        "y": 66.63,
+        "group": "above cutoff"
+       },
+       {
+        "x": -9.977,
+        "y": 53.46,
+        "group": "below cutoff"
+       },
+       {
+        "x": 0.8122,
+        "y": 52.35,
+        "group": "above cutoff"
+       },
+       {
+        "x": -8.499,
+        "y": 60.57,
+        "group": "below cutoff"
+       },
+       {
+        "x": -7.784,
+        "y": 55.67,
+        "group": "below cutoff"
+       },
+       {
+        "x": 3.772,
+        "y": 60.89,
+        "group": "above cutoff"
+       },
+       {
+        "x": 18.24,
+        "y": 65.15,
+        "group": "above cutoff"
+       },
+       {
+        "x": -1.343,
+        "y": 59.19,
+        "group": "below cutoff"
+       },
+       {
+        "x": null,
+        "y": 3,
+        "group": null
+       }
+      ],
+      "lines": [
+       {
+        "name": "fit below",
+        "x": [
+         -20,
+         0
+        ],
+        "y": [
+         52,
+         60
+        ]
+       },
+       {
+        "name": "fit above",
+        "x": [
+         0,
+         20
+        ],
+        "y": [
+         61,
+         69
+        ]
+       }
+      ]
+     },
+     "x_label": "prior score minus 50",
+     "y_label": "test score",
+     "note": ""
+    }
+   ],
+   "warnings": [],
+   "caps_verdict": false,
+   "affects_grade": true,
+   "error": null
+  },
+  {
+   "key": "dose",
+   "title": "Dose response",
+   "status": null,
+   "summary": "",
+   "metrics": {},
+   "assumptions": [],
+   "charts": [],
+   "warnings": [],
+   "caps_verdict": false,
+   "affects_grade": true,
+   "error": "We could not fit a dose curve: hours of tutoring is recorded for only 14 students."
+  },
+  {
+   "key": "literature",
+   "title": "Related reading",
+   "status": null,
+   "summary": "Three studies found by matching the words 'tutoring' and 'test scores'. Listed for context; they do not change the grade.",
+   "metrics": {
+    "papers": [
+     {
+      "title": "Effects of high-dosage tutoring: a meta-analysis",
+      "year": 2020,
+      "found_effect": "0.37 SD",
+      "match": 0.82
+     },
+     {
+      "title": "Small-group tutoring in middle school",
+      "year": 2021,
+      "found_effect": "0.21 SD",
+      "match": 0.74
+     },
+     {
+      "title": "Online tutoring at scale",
+      "year": 2023,
+      "found_effect": "no clear effect",
+      "match": 0.61
+     }
+    ],
+    "searched_online": false
+   },
+   "assumptions": [],
+   "charts": [],
+   "warnings": [],
+   "caps_verdict": false,
+   "affects_grade": false,
+   "error": null
+  }
+ ],
+ "estimate": {
+  "method": "Inverse-probability weighting (doubly robust)",
+  "target": "ATE",
+  "scope": "overlap_trimmed",
+  "estimate": 5.9,
+  "se": 1.27,
+  "ci90": [
+   3.81,
+   7.99
+  ],
+  "ci95": [
+   3.41,
+   8.39
+  ],
+  "p_value": 1e-05,
+  "n": 789,
+  "baseline_mean": 58.3,
+  "outcome_sd": 11.2,
+  "refused": false,
+  "refusal_reason": null,
+  "comparisons": [
+   {
+    "method": "Regression adjustment",
+    "estimate": 6.4,
+    "ci95": [
+     4.1,
+     8.7
+    ],
+    "note": ""
+   },
+   {
+    "method": "Matching (nearest neighbour)",
+    "estimate": 5.1,
+    "ci95": [
+     2.2,
+     8.0
+    ],
+    "note": "uses 612 matched pairs"
+   },
+   {
+    "method": "Unadjusted difference",
+    "estimate": 9.8,
+    "ci95": [
+     7.9,
+     11.7
+    ],
+    "note": "ignores the measured differences between groups"
+   },
+   {
+    "method": "Bounds for missing scores",
+    "estimate": null,
+    "ci95": [
+     -0.8,
+     9.6
+    ],
+    "note": "worst cases for the missing scores"
+   }
+  ],
+  "extra": {
+   "relative_effect_percent": 10.1,
+   "relative_ci95": [
+    5.8,
+    14.4
+   ],
+   "claimed_effect_in_outcome_units": 8.75,
+   "weights_max": 14.2
+  },
+  "charts": []
+ },
+ "verdict": {
+  "label": "Partly supported",
+  "sentence": "Tutoring is linked to higher test scores among low-income students, but the gain (about 10%, 95% interval 6% to 14%) is smaller than the claimed 15%.",
+  "sub": [
+   {
+    "aspect": "direction",
+    "label": "supported",
+    "detail": "Every method finds a positive effect."
+   },
+   {
+    "aspect": "size",
+    "label": "rejected",
+    "detail": "15% lies above the 95% interval (6% to 14%)."
+   },
+   {
+    "aspect": "scope",
+    "label": "inconclusive",
+    "detail": "Applies to students with comparable counterparts (1.4% trimmed)."
+   },
+   {
+    "aspect": "population",
+    "label": "supported",
+    "detail": "Low-income read as parent_income <= 40,000."
+   },
+   {
+    "aspect": "shape",
+    "label": "not_claimed",
+    "detail": ""
+   },
+   {
+    "aspect": "data_quality",
+    "label": "capped",
+    "detail": "Missing scores differ by group."
+   }
+  ],
+  "reasons": [
+   "The direction holds across four estimators.",
+   "The claimed size is outside the interval.",
+   "Pre-trends failed, so part of the gain may predate tutoring."
+  ],
+  "caveat": "if there are no hidden common causes of tutoring and test scores"
+ },
+ "assumed_panel": [
+  {
+   "key": "no_unmeasured_confounding",
+   "name": "No hidden common causes of tutoring and test scores",
+   "status": "assumed",
+   "detail": "Things like motivation or parental involvement are not in the data. If they drive both tutoring and scores, the estimate is biased.",
+   "testable": false,
+   "source": "design.observational"
+  },
+  {
+   "key": "no_interference",
+   "name": "One student's tutoring does not change another student's score",
+   "status": "assumed",
+   "detail": "Students in the same school may share tutors or notes. The data cannot rule this out because tutoring was not assigned at random across schools.",
+   "testable": false,
+   "source": "interference"
+  },
+  {
+   "key": "missing_not_outcome_related",
+   "name": "Scores are not missing because of the score itself",
+   "status": "assumed",
+   "detail": "12% of tutored and 5% of untutored scores are missing. If low scorers skipped the test more often, the estimate is too high.",
+   "testable": false,
+   "source": "missing_outcomes"
+  },
+  {
+   "key": "consistency",
+   "name": "'Tutoring' means the same thing for everyone",
+   "status": "assumed",
+   "detail": "Different tutors, hours and formats are lumped together as one treatment.",
+   "testable": false,
+   "source": "design"
+  }
+ ],
+ "explore": null,
+ "suggestion": {
+  "key": "next_study",
+  "title": "What study would settle this",
+  "status": null,
+  "summary": "Randomize tutoring offers within schools (a lottery among eligible low-income students) and record scores for everyone, including those who leave.",
+  "metrics": {
+   "suggested_design": "experiment",
+   "students_needed_for_80pct_power": 640,
+   "minimum_detectable_effect_points": 2.6
+  },
+  "assumptions": [],
+  "charts": [],
+  "warnings": [],
+  "caps_verdict": false,
+  "affects_grade": true,
+  "error": null
+ },
+ "dag": {
+  "kind": "dag",
+  "title": "Assumed causal diagram",
+  "data": {
+   "nodes": [
+    {
+     "id": "tutoring",
+     "role": "treatment"
+    },
+    {
+     "id": "test_score",
+     "role": "outcome"
+    },
+    {
+     "id": "prior_score",
+     "role": "confounder"
+    },
+    {
+     "id": "parent_income",
+     "role": "confounder"
+    },
+    {
+     "id": "age",
+     "role": "confounder"
+    },
+    {
+     "id": "motivation (not measured)",
+     "role": "hidden"
+    },
+    {
+     "id": "homework_hours",
+     "role": "post_treatment"
+    },
+    {
+     "id": "school_id",
+     "role": "cluster"
+    }
+   ],
+   "edges": [
+    {
+     "from": "tutoring",
+     "to": "test_score",
+     "type": "directed",
+     "label": "claimed",
+     "confidence": null
+    },
+    {
+     "from": "prior_score",
+     "to": "tutoring",
+     "type": "directed"
+    },
+    {
+     "from": "prior_score",
+     "to": "test_score",
+     "type": "directed"
+    },
+    {
+     "from": "parent_income",
+     "to": "tutoring",
+     "type": "directed"
+    },
+    {
+     "from": "parent_income",
+     "to": "test_score",
+     "type": "directed"
+    },
+    {
+     "from": "age",
+     "to": "test_score",
+     "type": "directed"
+    },
+    {
+     "from": "motivation (not measured)",
+     "to": "tutoring",
+     "type": "directed"
+    },
+    {
+     "from": "motivation (not measured)",
+     "to": "test_score",
+     "type": "directed"
+    },
+    {
+     "from": "tutoring",
+     "to": "test_score",
+     "type": "bidirected",
+     "label": "hidden cause?"
+    },
+    {
+     "from": "tutoring",
+     "to": "homework_hours",
+     "type": "directed"
+    },
+    {
+     "from": "homework_hours",
+     "to": "test_score",
+     "type": "partial"
+    },
+    {
+     "from": "school_id",
+     "to": "tutoring",
+     "type": "undirected"
+    }
+   ]
+  },
+  "x_label": "",
+  "y_label": "",
+  "note": ""
+ },
+ "errors": [],
+ "needs_input": []
+}
