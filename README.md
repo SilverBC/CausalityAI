@@ -64,6 +64,20 @@ anyone on your network. With the `cli` backend every summary or literature searc
 own Claude subscription and uses up your limits. There are no accounts or rate limits yet. Any shared or public
 deployment needs the `api` backend, accounts (planned) and rate limits.
 
+### Investigations: beyond the data
+
+A dataset can never contain the confounders nobody measured, but published research can name them. On the
+Investigation page (`#/investigate/<id>`) you pick a variable and Claude searches the literature (at most 4 web
+searches) for what causes it. Each factor needs a real source; it joins the graph as a **hypothetical** variable
+(dashed, no edge strengths), or as the matching column when one measures the same concept. Each factor gets a
+0–100 **Reliability Score** from its sources' OpenAlex citation counts and venue type, plus a small bonus when several
+sources agree. The score says how established the research is, not whether the factor confounds your data.
+
+Searches run in a per-analysis queue: 3 at a time, up to 40 waiting. They survive page reloads; a server restart marks
+running and queued ones as interrupted, so they can be retried. Renaming a variable is display-only: the name stays in
+your browser and is never sent to the server or to Claude. `CAUSAL_OPENALEX=off` skips the OpenAlex lookups (the tests
+do this), and `CAUSAL_FAKE_DELAY` sets how long a fake search takes.
+
 ### How the web app runs an analysis
 
 `POST /api/analyze` stores the upload and returns `{job_id, mode}` at once. The analysis runs in a background thread
@@ -93,7 +107,7 @@ running when the server stops are marked as interrupted when it starts again.
 | Next study, powered on the **claimed** effect, never the observed one | `suggest.py` |
 | Explore: FCI main graph, PC and LiNGAM second views, subsampling stability, per-pair sanity checks; uncertain edges never drawn as arrows | `explore.py` |
 | Orchestration and API | `pipeline.py`, `app.py` |
-| Web app services: storage, background jobs, language-model adapter, influence graph and depth search | `backend/services/` |
+| Web app services: storage, background jobs, language-model adapter, influence graph and depth search, literature investigations and Reliability Score | `backend/services/` |
 | Web app (React + Vite): analysis page, result tabs, influence graph, sidebar, light/dark theme. The report tabs use the original hand-written SVG charts and renderer; JSON and standalone-HTML export | `frontend/src/` |
 
 The shared result format is `backend/causality/schema.py`; the module contract is `CONTRACT.md`.

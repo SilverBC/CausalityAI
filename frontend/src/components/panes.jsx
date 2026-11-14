@@ -75,16 +75,21 @@ export function EstimatePane({ r }) {
   return <Html html={html} />;
 }
 
-export function LiteraturePane({ r }) {
+export function LiteraturePane({ r, job }) {
   const s = literature(r.report);
   const html = useMemo(() => (s ? R.sectionCard(s) : ""), [s]);
   return (
     <>
       <Html html={html} />
-      <p className="small muted pane-note">
-        The reading list never changes the grade. Searching the literature for causes your data can't contain arrives with
-        the Investigation page.
-      </p>
+      <section className="card">
+        <h2>Go beyond the data</h2>
+        <p className="small">
+          The reading list never changes the grade. To find causes your dataset could not contain, search the literature for
+          what drives any variable on the Investigation page. Findings appear as <b>hypothetical</b> variables with a
+          Reliability Score.
+        </p>
+        {r.influence?.nodes?.length > 0 && <a className="btn sm primary" href={`#/investigate/${job.id}`}>Open the Investigation page →</a>}
+      </section>
     </>
   );
 }

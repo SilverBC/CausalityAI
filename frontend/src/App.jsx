@@ -6,6 +6,7 @@ import Intake, { EMPTY_FORM } from "./components/Intake.jsx";
 import InfluenceGraph from "./components/InfluenceGraph.jsx";
 import Progress from "./components/Progress.jsx";
 import Results, { NeedsInput } from "./components/Results.jsx";
+import InvestigatePage from "./pages/InvestigatePage.jsx";
 import { go, useRoute } from "./router.js";
 
 const POLL_MS = 800;
@@ -117,14 +118,18 @@ export default function App() {
   }
 
   const running = submitting || job?.status === "running";
+  const graphJobId = route.page === "investigate" ? route.jobId
+    : job?.status === "done" && job.result?.influence?.nodes?.length ? job.id : null;
   const result = job?.status === "done" ? job.result : null;
 
   let body;
-  if (route.page !== "analysis") {
+  if (route.page === "investigate") {
+    body = <InvestigatePage jobId={route.jobId} focus={route.query.get("node")} />;
+  } else if (route.page !== "analysis") {
     body = (
       <section className="card placeholder">
-        <h1>{route.page === "investigate" ? "Investigation" : "Phone app"}</h1>
-        <p className="muted">This page arrives in a later stage of the rebuild.</p>
+        <h1>Phone app</h1>
+        <p className="muted">The phone app arrives in a later stage of the rebuild.</p>
         <a className="btn" href="#/">← Back to analysis</a>
       </section>
     );
@@ -139,7 +144,7 @@ export default function App() {
           <div className="card banner-error" role="alert"><b>The analysis failed.</b> {job.error}</div>
         )}
         {job?.status === "needs_input" && <NeedsInput key={job.updated} job={job} onAnswer={answer} busy={submitting} />}
-        {job && job.mode !== "claim-only" && <InfluenceGraph result={result} running={job.status === "running"} />}
+        {job && job.mode !== "claim-only" && <InfluenceGraph result={result} running={job.status === "running"} jobId={job.id} />}
         <div>
           {result ? <Results result={result} job={job} /> : job?.status === "running" ? <Progress job={job} title="Running the analysis" /> : null}
         </div>
@@ -149,12 +154,12 @@ export default function App() {
 
   return (
     <>
-      <Header health={health} route={route} sideOpen={sideOpen} onToggleSidebar={() => setSideOpen(!sideOpen)} />
+      <Header health={health} route={route} graphJobId={graphJobId} sideOpen={sideOpen} onToggleSidebar={() => setSideOpen(!sideOpen)} />
       <div className={`shell${sideOpen ? " side-open" : ""}`}>
         {sideOpen && (
           <>
             <div className="side-backdrop" onClick={() => setSideOpen(false)} aria-hidden="true" />
-            <Sidebar currentJobId={jobId} onClose={() => setSideOpen(false)} onNew={() => { reset(); if (!wide()) setSideOpen(false); }} />
+            <Sidebar currentJobId={route.page === "investigate" ? route.jobId : jobId} route={route} onClose={() => setSideOpen(false)} onNew={() => { reset(); if (!wide()) setSideOpen(false); }} />
           </>
         )}
         <div className="shell-content">

@@ -17,7 +17,7 @@ function ClaudeBadge({ health }) {
   );
 }
 
-export default function Header({ health, route, sideOpen, onToggleSidebar }) {
+export default function Header({ health, route, graphJobId, sideOpen, onToggleSidebar }) {
   return (
     <header className="topbar">
       <div className="topbar-left">
@@ -27,8 +27,13 @@ export default function Header({ health, route, sideOpen, onToggleSidebar }) {
         </button>
         <a className="brand" href="#/" aria-label="Causal Audit, new analysis"><Logo /><span>Causal Audit</span></a>
         <nav className="nav-links" aria-label="Pages">
-          <a href="#/" aria-current={route.page === "analysis" ? "page" : undefined}>Analysis</a>
-          <span className="disabled" aria-disabled="true" title="The Investigation page arrives in the next stage">Investigation</span>
+          <a href={route.page === "investigate" && route.jobId ? `#/?job=${route.jobId}` : "#/"}
+            aria-current={route.page === "analysis" ? "page" : undefined}>Analysis</a>
+          {graphJobId ? (
+            <a href={`#/investigate/${graphJobId}`} aria-current={route.page === "investigate" ? "page" : undefined}>Investigation</a>
+          ) : (
+            <span className="disabled" aria-disabled="true" title="Open a finished analysis with a graph first">Investigation</span>
+          )}
           <span className="disabled" aria-disabled="true" title="The phone app arrives in a later stage">Phone app</span>
         </nav>
       </div>

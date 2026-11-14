@@ -5,6 +5,7 @@ import { THEME_EVENT } from "../../theme.jsx";
 export const ROLE_VAR = {
   treatment: "--treat", outcome: "--ctrl", confounder: "--warn", instrument: "--instr", running: "--instr",
   post_treatment: "--fail", latent: "--latent", fixed_effect: "--muted", group: "--muted", upstream: "--accent",
+  hypothetical: "--hypo", literature_data: "--muted",
 };
 
 export const ROLE_LABEL = {
@@ -12,6 +13,7 @@ export const ROLE_LABEL = {
   running: "running variable", post_treatment: "measured after treatment", latent: "unmeasured (assumed)",
   fixed_effect: "fixed effect", group: "other covariates (grouped)", variable: "variable",
   upstream: "upstream cause (data search)",
+  hypothetical: "hypothetical (literature, not in your data)", literature_data: "in your data, suggested by the literature",
 };
 
 /** Resolve the CSS colour tokens the canvas needs; re-resolve when the theme changes. */
@@ -21,7 +23,7 @@ export function useThemeColors() {
     const v = (name) => cs.getPropertyValue(name).trim();
     return {
       ink: v("--ink"), muted: v("--muted"), line: v("--line"), panel: v("--panel"), node: v("--muted"),
-      pos: v("--pass"), neg: v("--fail"), accent: v("--accent"), neutral: v("--ink2"),
+      pos: v("--pass"), neg: v("--fail"), accent: v("--accent"), neutral: v("--ink2"), hypo: v("--hypo"),
       role: Object.fromEntries(Object.entries(ROLE_VAR).map(([k, name]) => [k, v(name)])),
     };
   };

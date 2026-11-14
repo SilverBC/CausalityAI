@@ -244,7 +244,33 @@ def _api(prompt, schema, web, system, timeout):
 
 # --------------------------------------------------------------------------------------------- fake
 def _fake(prompt: str, schema: Optional[dict], kind: Optional[str]):
-    """Deterministic answers keyed by `kind`. Later prompts add investigation and chat cases."""
+    """Deterministic answers keyed by `kind`. Later prompts add the chat case."""
+    if kind == "investigate":
+        import re
+        time.sleep(float(os.environ.get("CAUSAL_FAKE_DELAY", "4")))  # a search takes a while: lets tests see the queue
+        m = re.search(r"Investigate the variable '([^']+)'", prompt)
+        target = m.group(1) if m else "the target"
+        return {"summary": f"Fake search: published research links a few factors to {target}.",
+                "factors": [
+                    {"name": f"Motivation ({target})"[:40], "affects": ["target", "outcome"],
+                     "explanation": "Unmeasured motivation raises both take-up and later outcomes.", "dataset_column": None,
+                     "sources": [{"title": "Using Randomization in Development Economics Research: A Toolkit", "year": 2007,
+                                  "url": "https://doi.org/10.1016/S1573-4471(07)04061-2",
+                                  "doi": "10.1016/S1573-4471(07)04061-2"}]},
+                    {"name": "Pre-program earnings dip", "affects": ["target", "treatment"],
+                     "explanation": "People often enrol after a temporary drop in earnings (Ashenfelter's dip).",
+                     "dataset_column": None,
+                     "sources": [{"title": "Estimating the Effect of Training Programs on Earnings", "year": 1978,
+                                  "url": "https://www.jstor.org/stable/1924332", "doi": None},
+                                 {"title": "A working paper on program entry", "year": 2001,
+                                  "url": "https://www.nber.org/papers/w8000", "doi": None}]},
+                    {"name": "Age", "affects": ["target"], "explanation": "Older people enrol less often.",
+                     "dataset_column": "age",
+                     "sources": [{"title": "A labour economics web page", "year": None, "url": "https://example.com/age",
+                                  "doi": None}]},
+                    {"name": "Unsourced hunch", "affects": ["outcome"], "explanation": "No source: the server drops it.",
+                     "dataset_column": None, "sources": [{"title": "x", "year": None, "url": "not a url", "doi": None}]},
+                ]}
     if kind == "summary":
         return "Fake executive summary: the analysis ran end to end in test mode."
     if kind == "probe":

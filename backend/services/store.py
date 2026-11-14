@@ -1,6 +1,6 @@
 """Persistence: one SQLite file (standard library, no ORM) plus per-analysis blobs.
 
-    data/causal.db              analyses (later prompts add users, sessions, investigations, chats, messages)
+    data/causal.db              analyses, investigations (later prompts add users, sessions, chats, messages)
     data/blobs/<id>.upload      the uploaded file, byte for byte (a re-run reads it again)
     data/blobs/<id>.parquet     the prepared numeric frame (the depth search reloads it on demand)
 
@@ -33,6 +33,13 @@ TABLES = {
             params TEXT NOT NULL DEFAULT '{}', notify_email TEXT, link_base TEXT,
             created REAL NOT NULL, updated REAL NOT NULL);
         CREATE INDEX IF NOT EXISTS analyses_by_owner ON analyses(owner, updated);
+    """,
+    "investigations": """
+        CREATE TABLE IF NOT EXISTS investigations (
+            id TEXT PRIMARY KEY, analysis_id TEXT NOT NULL, node TEXT NOT NULL, label TEXT NOT NULL,
+            in_data INTEGER NOT NULL DEFAULT 1, status TEXT NOT NULL, result TEXT, error TEXT,
+            queued_at REAL NOT NULL, started_at REAL, finished_at REAL);
+        CREATE INDEX IF NOT EXISTS investigations_by_analysis ON investigations(analysis_id, queued_at);
     """,
 }
 MIGRATIONS: list[tuple[str, str, str]] = []   # (table, column, declaration), e.g. ("analyses", "mail_status", "TEXT")
@@ -129,6 +136,7 @@ def update_analysis(analysis_id: str, **fields) -> bool:
 
 def delete_analysis(analysis_id: str) -> None:
     with _lock, connect() as con:
+        con.execute("DELETE FROM investigations WHERE analysis_id=?", (analysis_id,))
         con.execute("DELETE FROM analyses WHERE id=?", (analysis_id,))
     for suffix in (".upload", ".parquet"):
         (blob_dir() / f"{analysis_id}{suffix}").unlink(missing_ok=True)
@@ -137,10 +145,14 @@ def delete_analysis(analysis_id: str) -> None:
 
 
 def interrupt_running() -> int:
-    """On server start: analyses that were running when the server stopped can never finish."""
+    """On server start: work that was running or queued when the server stopped can never finish.
+    Returns the number of interrupted analyses; interrupted investigations can be retried."""
+    now = time.time()
     with _lock, connect() as con:
+        con.execute("UPDATE investigations SET status='error', error='Interrupted by a server restart. Retry it.', "
+                    "finished_at=? WHERE status IN ('running', 'queued')", (now,))
         return con.execute("UPDATE analyses SET status='error', error='Interrupted by a server restart. Run it again.', "
-                           "updated=? WHERE status='running'", (time.time(),)).rowcount
+                           "updated=? WHERE status='running'", (now,)).rowcount
 
 
 # ------------------------------------------------------------------------------------------- blobs
@@ -178,3 +190,50 @@ def load_frame(analysis_id: str) -> Optional[pd.DataFrame]:
         while len(_frames) > FRAME_CACHE_SIZE:
             _frames.popitem(last=False)
     return df
+
+
+# ------------------------------------------------------------------------------------------- investigations
+def _inv(r: sqlite3.Row) -> dict:
+    out = dict(r)
+    out["in_data"] = bool(out["in_data"])
+    out["result"] = _loads(out.get("result"), None)
+    return out
+
+
+def list_investigations(analysis_id: str) -> list[dict]:
+    with connect() as con:
+        rows = con.execute("SELECT * FROM investigations WHERE analysis_id=? ORDER BY queued_at, rowid",
+                           (analysis_id,)).fetchall()
+    return [_inv(r) for r in rows]
+
+
+def get_investigation(inv_id: str) -> Optional[dict]:
+    with connect() as con:
+        r = con.execute("SELECT * FROM investigations WHERE id=?", (inv_id,)).fetchone()
+    return _inv(r) if r else None
+
+
+def insert_investigation(*, analysis_id: str, node: str, label: str, in_data: bool) -> dict:
+    row = {"id": new_id(10), "analysis_id": analysis_id, "node": node, "label": label, "in_data": int(in_data),
+           "status": "queued", "queued_at": time.time()}
+    with _lock, connect() as con:
+        con.execute(f"INSERT INTO investigations ({', '.join(row)}) VALUES ({', '.join(':' + k for k in row)})", row)
+    return get_investigation(row["id"])
+
+
+def update_investigation(inv_id: str, **fields) -> bool:
+    """Returns False if the row is gone (deleted or cancelled meanwhile)."""
+    cols = ", ".join(f"{k}=?" for k in fields)
+    vals = [json.dumps(v) if k == "result" and v is not None else v for k, v in fields.items()]
+    with _lock, connect() as con:
+        return con.execute(f"UPDATE investigations SET {cols} WHERE id=?", (*vals, inv_id)).rowcount > 0
+
+
+def delete_investigations(analysis_id: str, node: Optional[str] = None, status: Optional[str] = None) -> int:
+    q, args = "DELETE FROM investigations WHERE analysis_id=?", [analysis_id]
+    if node is not None:
+        q, args = q + " AND node=?", args + [node]
+    if status is not None:
+        q, args = q + " AND status=?", args + [status]
+    with _lock, connect() as con:
+        return con.execute(q, args).rowcount

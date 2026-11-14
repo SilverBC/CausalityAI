@@ -20,7 +20,7 @@ from pydantic import BaseModel
 
 from causality import data, sim
 from causality.data import InputError
-from services import graph, jobs, llm, store
+from services import graph, investigate, jobs, llm, store
 from services.config import FRONTEND_DIST, MAX_UPLOAD_BYTES, SAMPLES_DIR
 from services.ownership import owned_analysis, owner_of
 
@@ -212,7 +212,10 @@ def list_datasets(request: Request):
         out.append({"id": a["id"], "title": a["title"], "mode": a["mode"], "status": a["status"], "error": a["error"],
                     "filename": a["filename"], "claim": a["claim"], "created": a["created"], "updated": a["updated"],
                     "grade": (rep.get("design") or {}).get("grade"), "verdict": (rep.get("verdict") or {}).get("label"),
-                    "has_graph": bool((res.get("influence") or {}).get("nodes"))})
+                    "has_graph": bool((res.get("influence") or {}).get("nodes")),
+                    "investigations": [{"node": i["node"], "label": i["label"], "status": i["status"],
+                                        "found": len((i.get("result") or {}).get("factors", []))}
+                                       for i in store.list_investigations(a["id"])]})
     return out
 
 
@@ -261,6 +264,79 @@ def job_influence(job_id: str, depth: int, request: Request):
             _depth_cache.clear()
         _depth_cache[key] = graph.influence_at_depth(fr, res["base_graph"], depth)
     return _depth_cache[key]
+
+
+# --------------------------------------------------------------------------------------------- investigations
+class InvestigateRequest(BaseModel):
+    node: str
+    label: Optional[str] = None
+    in_data: bool = True
+
+
+class BatchRequest(BaseModel):
+    nodes: list[InvestigateRequest]
+
+
+def _investigable(request: Request, job_id: str) -> dict:
+    a = owned_analysis(request, job_id)
+    if a["status"] != "done" or not ((a["result"] or {}).get("influence") or {}).get("nodes"):
+        raise HTTPException(409, "This analysis has no graph to investigate yet.")
+    if not llm.available():
+        raise HTTPException(503, "Investigations search the literature with Claude, and no language model is "
+                                 "configured (install Claude Code, set ANTHROPIC_API_KEY, or set CAUSAL_LLM).")
+    return a
+
+
+def _in_data(a: dict, req: InvestigateRequest) -> bool:
+    cols = {c["name"] for c in ((a["result"].get("report") or {}).get("data") or {}).get("columns") or []}
+    return bool(req.in_data and req.node in cols)
+
+
+@app.get("/api/jobs/{job_id}/investigations")
+def list_investigations(job_id: str, request: Request):
+    """Every investigation of the analysis, with elapsed seconds and queue positions."""
+    owned_analysis(request, job_id)
+    return investigate.public(job_id)
+
+
+@app.post("/api/jobs/{job_id}/investigate")
+def start_investigation(job_id: str, req: InvestigateRequest, request: Request):
+    """Search the literature for what causes one variable (runs in the background; queued if 3 already run)."""
+    a = _investigable(request, job_id)
+    try:
+        return investigate.start(a, req.node, req.label or req.node, _in_data(a, req))
+    except investigate.QueueFull as e:
+        raise HTTPException(429, str(e))
+
+
+@app.post("/api/jobs/{job_id}/investigate-batch")
+def start_batch(job_id: str, req: BatchRequest, request: Request):
+    """Queue investigations of several variables (at most 100 per request). Stops at the queue limit."""
+    a = _investigable(request, job_id)
+    queued, skipped = [], []
+    for n in req.nodes[:100]:
+        try:
+            queued.append(investigate.start(a, n.node, n.label or n.node, _in_data(a, n)))
+        except investigate.QueueFull:
+            skipped.append(n.node)
+    n = investigate.counts(job_id)
+    # `queued` lists what this request started or queued; the counts describe the whole queue afterwards
+    return {"queued": queued, "skipped": skipped, "running": n["running"], "queued_count": n["queued"]}
+
+
+@app.post("/api/jobs/{job_id}/investigations/cancel-queued")
+def cancel_queued(job_id: str, request: Request):
+    owned_analysis(request, job_id)
+    return {"cancelled": investigate.cancel_queued(job_id)}
+
+
+@app.delete("/api/jobs/{job_id}/investigations/{node:path}")
+def delete_investigation(job_id: str, node: str, request: Request):
+    """Delete one variable's investigation, or cancel it if it is still queued."""
+    owned_analysis(request, job_id)
+    if not investigate.remove(job_id, node):
+        raise HTTPException(404, "There is no investigation of that variable.")
+    return {"ok": True}
 
 
 # --------------------------------------------------------------------------------------------- page

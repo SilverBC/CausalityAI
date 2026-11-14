@@ -3,10 +3,11 @@ import { useMemo, useState } from "react";
 import { fmt } from "../format.js";
 import GraphCanvas from "./graph/GraphCanvas.jsx";
 import { buildGraph } from "./graph/model.js";
+import { useNodeNames } from "./graph/names.js";
 import { ROLE_LABEL, useThemeColors } from "./graph/theme.js";
 
 export function GraphLegend({ data, colors }) {
-  const roles = [...new Set(data.nodes.map((n) => n.role))];
+  const roles = [...new Set(data.nodes.filter((n) => !n.hypothetical).map((n) => n.role))];
   const has = (f) => data.links.some(f);
   return (
     <div className="legend">
@@ -14,18 +15,24 @@ export function GraphLegend({ data, colors }) {
         <span key={r}><i className={data.nodes.some((n) => n.role === r && n.observed === false) ? "hollow" : ""}
           style={{ "--c": colors.role[r] || colors.node }} />{ROLE_LABEL[r] || r}</span>
       ))}
+      {data.nodes.some((n) => n.hypothetical) && (
+        <span><i className="hollow" style={{ "--c": colors.hypo }} />hypothetical: from the literature, not in your data (size = Reliability Score)</span>
+      )}
+      {data.nodes.some((n) => n.suggested) && <span><i className="ring" style={{ "--c": colors.hypo }} />in your data, also suggested by the literature</span>}
       <span><i style={{ "--c": colors.pos }} />positive effect</span>
       <span><i style={{ "--c": colors.neg }} />negative effect</span>
       {has((l) => l.weight != null && !l.signed) && <span><i style={{ "--c": colors.neutral }} />effect of a category (no sign)</span>}
       <span><b className="legend-arrow" aria-hidden="true">→</b>cause → effect</span>
-      {has((l) => !l.directed) && <span><b className="legend-arrow" aria-hidden="true">—</b>no arrow: direction unknown</span>}
+      {has((l) => l.directed === false) && <span><b className="legend-arrow" aria-hidden="true">—</b>no arrow: direction unknown</span>}
       {has((l) => l.kind === "latent" || l.kind === "uncertain") && <span><b className="legend-arrow" aria-hidden="true">┄</b>dashed: hidden cause or uncertain end</span>}
+      {has((l) => l.hypothetical) && <span><b className="legend-arrow hypo" aria-hidden="true">┄</b>hypothetical link (no strength)</span>}
     </div>
   );
 }
 
-export default function InfluenceGraph({ result, running }) {
+export default function InfluenceGraph({ result, running, jobId }) {
   const colors = useThemeColors();
+  const { names } = useNodeNames(jobId); // display-only renames from the Investigation page
   const [highlight, setHighlight] = useState(null);
   const inf = result?.influence;
   const ok = !!(inf && !inf.error && inf.nodes?.length);
@@ -50,11 +57,11 @@ export default function InfluenceGraph({ result, running }) {
         </div>
         <div className="row">
           {ok && <span className="tag">{inf.source === "discovery" ? "discovered from the data" : "assumed diagram, weighted by the data"}</span>}
-          {ok && <span className="btn sm disabled" aria-disabled="true" title="The Investigation page arrives in the next stage">Investigate further →</span>}
+          {ok && jobId && <a className="btn sm primary" href={`#/investigate/${jobId}`}>Investigate further →</a>}
         </div>
       </div>
 
-      <GraphCanvas data={data} colors={colors} highlightId={highlight} empty={empty} />
+      <GraphCanvas data={data} colors={colors} highlightId={highlight} empty={empty} names={names} />
 
       {ok && (
         <div className="graph-foot">
@@ -65,7 +72,7 @@ export default function InfluenceGraph({ result, running }) {
               {ranked.slice(0, 6).map((n) => (
                 <div key={n.id} className="rank-row" onMouseEnter={() => setHighlight(n.id)} onMouseLeave={() => setHighlight(null)}
                   onFocus={() => setHighlight(n.id)} onBlur={() => setHighlight(null)} tabIndex={0}>
-                  <span className="rank-name">{n.label}</span>
+                  <span className="rank-name">{names[n.id] || n.label}</span>
                   <span className="rank-bar"><span style={{ width: `${(100 * n.influence) / maxInf}%`, background: colors.role[n.role] || colors.node }} /></span>
                   <span className="rank-val">{fmt(n.influence, 2)}</span>
                 </div>

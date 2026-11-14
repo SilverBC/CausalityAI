@@ -69,3 +69,19 @@ export const answerQuestions = (id, { confirm = {}, design = null }) =>
 
 export const DATASETS_EVENT = "causal-audit:datasets-changed"; // fire after starting or finishing an analysis
 export const datasetsChanged = () => window.dispatchEvent(new Event(DATASETS_EVENT));
+
+// ---- literature investigations
+const inv = (id) => `/api/jobs/${encodeURIComponent(id)}`;
+export const fetchInvestigations = (id) => request(`${inv(id)}/investigations`);
+export const startInvestigation = (id, n) =>
+  sendJSON(`${inv(id)}/investigate`, "POST", { node: n.id, label: n.label, in_data: !n.hypothetical });
+export const startInvestigations = (id, nodes) =>
+  sendJSON(`${inv(id)}/investigate-batch`, "POST", { nodes: nodes.map((n) => ({ node: n.id, label: n.label, in_data: !n.hypothetical })) });
+export const deleteInvestigation = (id, node) => sendJSON(`${inv(id)}/investigations/${encodeURIComponent(node)}`, "DELETE");
+export const cancelQueuedInvestigations = (id) => sendJSON(`${inv(id)}/investigations/cancel-queued`, "POST");
+
+export const INVESTIGATIONS_EVENT = "causal-audit:investigations-changed"; // detail: { jobId }
+export const investigationsChanged = (jobId) => {
+  window.dispatchEvent(new CustomEvent(INVESTIGATIONS_EVENT, { detail: { jobId } }));
+  datasetsChanged();
+};
