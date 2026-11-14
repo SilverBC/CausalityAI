@@ -55,8 +55,9 @@ Settings come from environment variables or a `.env` file in the project root (g
 | `RESEND_API_KEY`, `MAIL_FROM` | none | "Analysis ready" email through Resend. Without a verified domain Resend only delivers to the Resend account's own address |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | none | Email fallback over SMTP (e.g. Gmail with an app password) |
 
-The analysis itself never uses a language model. Claude only writes the executive summary (with a plain template
-when it is unavailable) and handles claim-only mode (a claim with no data), which needs it. `GET /api/health` shows
+The analysis itself never uses a language model. Claude writes the executive summary (with a plain template when
+it is unavailable), runs the literature investigations and the Investigator chat, and handles claim-only mode (a
+claim with no data). `GET /api/health` shows
 which backend is active and its last error; `?probe=true` makes one tiny call to check that it works.
 
 ### Local only by default
@@ -90,6 +91,17 @@ answers 404. The first account created on a server also adopts analyses made bef
 Signed-in users can ask for an email when an analysis finishes. If the email can't be sent, the analysis says why
 instead of failing silently. Deleting an analysis removes its investigations and files too; every delete asks first.
 
+### The Investigator and the phone app
+
+The Investigator is a chat assistant (the alligator in a deerstalker, bottom right on a finished analysis and on the
+Investigation page) that answers questions about one analysis using its real numbers. Each reply is one Claude call
+with a compact digest of the analysis and the last 12 messages; it can show cards (the estimate, a check, the graph,
+an investigation) and start a literature investigation when you ask it to. When Claude can't answer, the chat says why
+and keeps your message so you can send it again.
+
+The phone app (`#/m`, where phones land by default) is built around those chats: your datasets with their chats, an
+upload screen, the chat itself, and the causal graph full screen with a bottom sheet for investigating variables.
+
 ### How the web app runs an analysis
 
 `POST /api/analyze` stores the upload and returns `{job_id, mode}` at once. The analysis runs in a background thread
@@ -119,8 +131,8 @@ running when the server stops are marked as interrupted when it starts again.
 | Next study, powered on the **claimed** effect, never the observed one | `suggest.py` |
 | Explore: FCI main graph, PC and LiNGAM second views, subsampling stability, per-pair sanity checks; uncertain edges never drawn as arrows | `explore.py` |
 | Orchestration and API | `pipeline.py`, `app.py` |
-| Web app services: storage, background jobs, language-model adapter, influence graph and depth search, literature investigations and Reliability Score, accounts and ownership, email | `backend/services/` |
-| Web app (React + Vite): analysis page, result tabs, influence graph, sidebar, light/dark theme. The report tabs use the original hand-written SVG charts and renderer; JSON and standalone-HTML export | `frontend/src/` |
+| Web app services: storage, background jobs, language-model adapter, influence graph and depth search, literature investigations and Reliability Score, the Investigator chat, accounts and ownership, email | `backend/services/` |
+| Web app (React + Vite): analysis page, result tabs, influence graph, Investigation page, the Investigator chat, phone app, accounts, light/dark theme. The report tabs use the original hand-written SVG charts and renderer; JSON and standalone-HTML export | `frontend/src/` |
 
 The shared result format is `backend/causality/schema.py`; the module contract is `CONTRACT.md`.
 Known-truth simulations are in `backend/causality/sim.py`, and `tests/test_acceptance.py` runs

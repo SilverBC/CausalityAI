@@ -12,7 +12,7 @@ import MultiInvestigate, { NOT_INVESTIGABLE } from "../components/MultiInvestiga
 import ReliabilityBreakdown from "../components/ReliabilityBreakdown.jsx";
 
 // Display-only names. Everything sent to the backend keeps the original id and label.
-const Names = createContext({ names: {}, rename: () => {}, nameOf: (id, original) => original });
+export const Names = createContext({ names: {}, rename: () => {}, nameOf: (id, original) => original });
 
 export function Disclaimer() {
   return (
@@ -106,7 +106,7 @@ function NodeName({ node }) {
   );
 }
 
-function NodePanel({ node, inv, onInvestigate, onSelect, startError, onDelete, onCancel, slotsFull }) {
+export function NodePanel({ node, inv, onInvestigate, onSelect, startError, onDelete, onCancel, slotsFull }) {
   const { nameOf } = useContext(Names);
   const display = nameOf(node.id, node.label);
   const can = !NOT_INVESTIGABLE.has(node.role);

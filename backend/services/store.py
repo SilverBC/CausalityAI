@@ -1,6 +1,6 @@
 """Persistence: one SQLite file (standard library, no ORM) plus per-analysis blobs.
 
-    data/causal.db              analyses, investigations, users, sessions (stage 05 adds chats and messages)
+    data/causal.db              analyses, investigations, users, sessions, chats, messages
     data/blobs/<id>.upload      the uploaded file, byte for byte (a re-run reads it again)
     data/blobs/<id>.parquet     the prepared numeric frame (the depth search reloads it on demand)
 
@@ -48,6 +48,17 @@ TABLES = {
     "sessions": """
         CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, user_id TEXT NOT NULL, created REAL NOT NULL);
         CREATE INDEX IF NOT EXISTS sessions_by_user ON sessions(user_id);
+    """,
+    "chats": """
+        CREATE TABLE IF NOT EXISTS chats (
+            id TEXT PRIMARY KEY, analysis_id TEXT NOT NULL, title TEXT NOT NULL, created REAL NOT NULL, updated REAL NOT NULL);
+        CREATE INDEX IF NOT EXISTS chats_by_analysis ON chats(analysis_id, updated);
+    """,
+    "messages": """
+        CREATE TABLE IF NOT EXISTS messages (
+            id TEXT PRIMARY KEY, chat_id TEXT NOT NULL, role TEXT NOT NULL, content TEXT NOT NULL,
+            cards TEXT NOT NULL DEFAULT '[]', created REAL NOT NULL);
+        CREATE INDEX IF NOT EXISTS messages_by_chat ON messages(chat_id, created);
     """,
 }
 MIGRATIONS: list[tuple[str, str, str]] = [   # (table, column, declaration)
@@ -159,6 +170,8 @@ def adopt_unowned(new: str) -> int:
 
 def delete_analysis(analysis_id: str) -> None:
     with _lock, connect() as con:
+        con.execute("DELETE FROM messages WHERE chat_id IN (SELECT id FROM chats WHERE analysis_id=?)", (analysis_id,))
+        con.execute("DELETE FROM chats WHERE analysis_id=?", (analysis_id,))
         con.execute("DELETE FROM investigations WHERE analysis_id=?", (analysis_id,))
         con.execute("DELETE FROM analyses WHERE id=?", (analysis_id,))
     for suffix in (".upload", ".parquet"):
@@ -260,3 +273,65 @@ def delete_investigations(analysis_id: str, node: Optional[str] = None, status: 
         q, args = q + " AND status=?", args + [status]
     with _lock, connect() as con:
         return con.execute(q, args).rowcount
+
+
+# ------------------------------------------------------------------------------------------- chats
+def _chat(r: sqlite3.Row) -> dict:
+    out = dict(r)
+    out["dataset_id"] = out["analysis_id"]  # the phone app calls analyses "datasets"
+    return out
+
+
+def _message(r: sqlite3.Row) -> dict:
+    out = dict(r)
+    out["cards"] = _loads(out.get("cards"), [])
+    return out
+
+
+def create_chat(analysis_id: str, title: str = "New chat") -> dict:
+    now = time.time()
+    row = {"id": new_id(), "analysis_id": analysis_id, "title": title, "created": now, "updated": now}
+    with _lock, connect() as con:
+        con.execute("INSERT INTO chats (id, analysis_id, title, created, updated) VALUES (:id, :analysis_id, :title, :created, :updated)", row)
+    return get_chat(row["id"], with_messages=False)
+
+
+def list_chats(analysis_id: str) -> list[dict]:
+    with connect() as con:
+        rows = con.execute("SELECT * FROM chats WHERE analysis_id=? ORDER BY updated DESC", (analysis_id,)).fetchall()
+    return [_chat(r) for r in rows]
+
+
+def get_chat(chat_id: str, with_messages: bool = True) -> Optional[dict]:
+    with connect() as con:
+        r = con.execute("SELECT * FROM chats WHERE id=?", (chat_id,)).fetchone()
+        if not r:
+            return None
+        out = _chat(r)
+        if with_messages:
+            rows = con.execute("SELECT * FROM messages WHERE chat_id=? ORDER BY created, rowid", (chat_id,)).fetchall()
+            out["messages"] = [_message(m) for m in rows]
+    return out
+
+
+def add_messages(chat_id: str, items: list[tuple[str, str, list]]) -> list[dict]:
+    """Store (role, content, cards) messages together, and bump the chat's `updated`."""
+    now = time.time()
+    rows = [{"id": new_id(), "chat_id": chat_id, "role": role, "content": content, "cards": json.dumps(cards or []),
+             "created": now + i * 1e-3} for i, (role, content, cards) in enumerate(items)]
+    with _lock, connect() as con:
+        con.executemany("INSERT INTO messages (id, chat_id, role, content, cards, created) "
+                        "VALUES (:id, :chat_id, :role, :content, :cards, :created)", rows)
+        con.execute("UPDATE chats SET updated=? WHERE id=?", (now, chat_id))
+    return [{**r, "cards": json.loads(r["cards"])} for r in rows]
+
+
+def rename_chat(chat_id: str, title: str) -> None:
+    with _lock, connect() as con:
+        con.execute("UPDATE chats SET title=? WHERE id=?", (title, chat_id))
+
+
+def delete_chat(chat_id: str) -> None:
+    with _lock, connect() as con:
+        con.execute("DELETE FROM messages WHERE chat_id=?", (chat_id,))
+        con.execute("DELETE FROM chats WHERE id=?", (chat_id,))

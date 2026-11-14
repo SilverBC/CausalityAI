@@ -7,10 +7,15 @@ import InfluenceGraph from "./components/InfluenceGraph.jsx";
 import Progress from "./components/Progress.jsx";
 import Results, { NeedsInput } from "./components/Results.jsx";
 import InvestigatePage from "./pages/InvestigatePage.jsx";
+import AssistantBubble from "./components/AssistantBubble.jsx";
+import MobileApp from "./mobile/MobileApp.jsx";
 import { go, useRoute } from "./router.js";
 import { GuestNudge, useAuth, useOnAuthChange } from "./auth.jsx";
 
 const POLL_MS = 800;
+
+// Phones landing on the bare site get the chat-first phone app; the desktop pages stay reachable from it.
+if (!window.location.hash && window.matchMedia("(max-width: 640px)").matches) window.location.replace("#/m");
 const SIDE_KEY = "causal-audit:sidebar";
 const wide = () => window.matchMedia("(min-width: 1100px)").matches;
 
@@ -141,14 +146,6 @@ export default function App() {
   let body;
   if (route.page === "investigate") {
     body = <InvestigatePage jobId={route.jobId} focus={route.query.get("node")} />;
-  } else if (route.page !== "analysis") {
-    body = (
-      <section className="card placeholder">
-        <h1>Phone app</h1>
-        <p className="muted">The phone app arrives in a later stage of the rebuild.</p>
-        <a className="btn" href="#/">← Back to analysis</a>
-      </section>
-    );
   } else {
     body = (
       <>
@@ -171,6 +168,10 @@ export default function App() {
     );
   }
 
+  if (route.page === "mobile") return <MobileApp route={route} />;
+  // the Investigator: on a finished analysis, and on the Investigation page
+  const chatJobId = route.page === "investigate" ? route.jobId : job?.status === "done" ? job.id : null;
+
   return (
     <>
       <Header health={health} route={route} graphJobId={graphJobId} sideOpen={sideOpen} onToggleSidebar={() => setSideOpen(!sideOpen)} />
@@ -185,6 +186,7 @@ export default function App() {
         )}
         <div className="shell-content">
           <main id="main">{body}</main>
+          <AssistantBubble jobId={chatJobId} />
           <footer className="foot muted small">
             Analysis in Python (pandas · statsmodels · scikit-learn · DoWhy · EconML · causal-learn · LiNGAM). Claude writes the
             summary when it's connected; the analysis never depends on it.

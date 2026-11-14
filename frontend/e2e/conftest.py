@@ -81,7 +81,7 @@ def assert_layout(page, label):
 
 
 def run_lalonde(page, base_url):
-    page.goto(base_url + "/")
+    page.goto(base_url + "/#/")  # explicit: the bare site sends phones to the phone app
     page.get_by_role("button", name="Real: LaLonde NSW experiment").click()
     page.wait_for_function("document.querySelector('#claim').value.length > 0")
     page.get_by_role("button", name="Run analysis").click()

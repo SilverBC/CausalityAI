@@ -93,3 +93,10 @@ export const fetchMe = () => request("/api/auth/me");
 export const signUp = (email, password) => sendJSON("/api/auth/signup", "POST", { email, password });
 export const logIn = (email, password) => sendJSON("/api/auth/login", "POST", { email, password });
 export const logOut = () => sendJSON("/api/auth/logout", "POST");
+
+// ---- datasets (= analyses) and their chats with the Investigator
+export const fetchDataset = (id) => request(`/api/datasets/${encodeURIComponent(id)}`);
+export const createChat = (datasetId) => sendJSON(`/api/datasets/${encodeURIComponent(datasetId)}/chats`, "POST");
+export const fetchChat = (id) => request(`/api/chats/${encodeURIComponent(id)}`);
+export const deleteChat = (id) => sendJSON(`/api/chats/${encodeURIComponent(id)}`, "DELETE");
+export const sendChatMessage = (id, text) => sendJSON(`/api/chats/${encodeURIComponent(id)}/messages`, "POST", { text });

@@ -35,7 +35,7 @@ export default function Header({ health, route, graphJobId, sideOpen, onToggleSi
           ) : (
             <span className="disabled" aria-disabled="true" title="Open a finished analysis with a graph first">Investigation</span>
           )}
-          <span className="disabled" aria-disabled="true" title="The phone app arrives in a later stage">Phone app</span>
+          <a href="#/m" title="The chat-first phone version">Phone app</a>
         </nav>
       </div>
       <div className="topbar-right">

@@ -20,9 +20,9 @@ from pydantic import BaseModel
 
 from causality import data, sim
 from causality.data import InputError
-from services import auth, graph, investigate, jobs, llm, mailer, store
+from services import auth, chat, graph, investigate, jobs, llm, mailer, store
 from services.config import FRONTEND_DIST, MAX_UPLOAD_BYTES, SAMPLES_DIR
-from services.auth import owned_analysis, owner_of, require_owner
+from services.auth import owned_analysis, owned_chat, owner_of, require_owner
 
 warnings.filterwarnings("ignore")
 
@@ -207,24 +207,78 @@ def job_status(job_id: str, request: Request):
     return _public(owned_analysis(request, job_id))
 
 
+def _dataset(a: dict) -> dict:
+    """What the sidebar and the phone home screen show about one analysis."""
+    res = a["result"] or {}
+    rep = res.get("report") or {}
+    chats = store.list_chats(a["id"])
+    return {"id": a["id"], "title": a["title"], "mode": a["mode"], "status": a["status"], "error": a["error"],
+            "filename": a["filename"], "claim": a["claim"], "created": a["created"],
+            "updated": max([a["updated"]] + [c["updated"] for c in chats]),
+            "grade": (rep.get("design") or {}).get("grade"), "verdict": (rep.get("verdict") or {}).get("label"),
+            "has_graph": bool((res.get("influence") or {}).get("nodes")),
+            "investigations": [{"node": i["node"], "label": i["label"], "status": i["status"],
+                                "found": len((i.get("result") or {}).get("factors", []))}
+                               for i in store.list_investigations(a["id"])],
+            "chats": [{k: c[k] for k in ("id", "title", "created", "updated")} for c in chats]}
+
+
 @app.get("/api/datasets")
 def list_datasets(request: Request):
-    """The caller's analyses, newest activity first, with what the sidebar shows."""
+    """The caller's analyses, most recent activity (analysis or chat) first."""
     who = owner_of(request)
     if not who:
         return []
-    out = []
-    for a in store.list_analyses(who):
-        res = a["result"] or {}
-        rep = res.get("report") or {}
-        out.append({"id": a["id"], "title": a["title"], "mode": a["mode"], "status": a["status"], "error": a["error"],
-                    "filename": a["filename"], "claim": a["claim"], "created": a["created"], "updated": a["updated"],
-                    "grade": (rep.get("design") or {}).get("grade"), "verdict": (rep.get("verdict") or {}).get("label"),
-                    "has_graph": bool((res.get("influence") or {}).get("nodes")),
-                    "investigations": [{"node": i["node"], "label": i["label"], "status": i["status"],
-                                        "found": len((i.get("result") or {}).get("factors", []))}
-                                       for i in store.list_investigations(a["id"])]})
-    return out
+    return sorted((_dataset(a) for a in store.list_analyses(who)), key=lambda d: d["updated"], reverse=True)
+
+
+@app.get("/api/datasets/{dataset_id}")
+def get_dataset(dataset_id: str, request: Request):
+    a = owned_analysis(request, dataset_id)
+    return {**_dataset(a), "steps": a["steps"]}
+
+
+@app.post("/api/datasets/{dataset_id}/chats")
+def new_chat(dataset_id: str, request: Request):
+    a = owned_analysis(request, dataset_id)
+    if a["status"] != "done":
+        raise HTTPException(409, "This analysis is not finished yet.")
+    return store.create_chat(dataset_id)
+
+
+@app.get("/api/chats/{chat_id}")
+def get_chat(chat_id: str, request: Request):
+    c, _ = owned_chat(request, chat_id)
+    return c
+
+
+@app.delete("/api/chats/{chat_id}")
+def delete_chat(chat_id: str, request: Request):
+    owned_chat(request, chat_id)
+    store.delete_chat(chat_id)
+    return {"ok": True}
+
+
+class ChatMessage(BaseModel):
+    text: str
+
+
+@app.post("/api/chats/{chat_id}/messages")
+def send_message(chat_id: str, msg: ChatMessage, request: Request):
+    """The Investigator's reply (one Claude call). Both messages are stored only when it worked; otherwise 503 with
+    the reason, and the user can send it again."""
+    c, a = owned_chat(request, chat_id)
+    if a["status"] != "done":
+        raise HTTPException(409, "This analysis is not finished yet.")
+    text = (msg.text or "").strip()
+    if not text:
+        raise HTTPException(400, "The message is empty.")
+    if len(text) > chat.MAX_MESSAGE:
+        raise HTTPException(400, f"Messages are limited to {chat.MAX_MESSAGE:,} characters.")
+    try:
+        return chat.send(c, a, text)
+    except chat.ChatUnavailable as e:
+        raise HTTPException(503, f"Claude is unavailable: {e}")
 
 
 class Answers(BaseModel):

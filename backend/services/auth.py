@@ -5,7 +5,7 @@
   that last 30 days.
 - Guests: the browser keeps a random id in localStorage and sends it as X-Guest-Id ([A-Za-z0-9-]{8,64}). Guest work
   is owned by "guest:<id>" and lasts as long as that browser keeps the id; signing up or in moves it to the account.
-- Ownership: every analysis has an owner, "user:<id>" or "guest:<id>". Investigations (and, later, chats) follow
+- Ownership: every analysis has an owner, "user:<id>" or "guest:<id>". Investigations and chats follow
   their analysis. `owned_analysis` is the one gate: anything the caller does not own answers 404, never 403, so ids
   can't be probed.
 """
@@ -139,3 +139,13 @@ def owned_analysis(request: Request, analysis_id: str) -> dict:
     if not a or a["owner"] != who:
         raise HTTPException(404, NOT_FOUND)
     return a
+
+
+def owned_chat(request: Request, chat_id: str) -> tuple[dict, dict]:
+    """(chat with messages, its analysis) if the caller owns the analysis; 404 otherwise."""
+    c = store.get_chat(chat_id)
+    who = owner_of(request)
+    a = store.get_analysis(c["analysis_id"]) if c and who else None
+    if not a or a["owner"] != who:
+        raise HTTPException(404, "Unknown chat (it may belong to another account, or it was deleted).")
+    return c, a

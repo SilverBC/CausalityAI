@@ -244,7 +244,7 @@ def _api(prompt, schema, web, system, timeout):
 
 # --------------------------------------------------------------------------------------------- fake
 def _fake(prompt: str, schema: Optional[dict], kind: Optional[str]):
-    """Deterministic answers keyed by `kind`. Later prompts add the chat case."""
+    """Deterministic answers keyed by `kind`."""
     if kind == "investigate":
         import re
         time.sleep(float(os.environ.get("CAUSAL_FAKE_DELAY", "4")))  # a search takes a while: lets tests see the queue
@@ -271,6 +271,26 @@ def _fake(prompt: str, schema: Optional[dict], kind: Optional[str]):
                     {"name": "Unsourced hunch", "affects": ["outcome"], "explanation": "No source: the server drops it.",
                      "dataset_column": None, "sources": [{"title": "x", "year": None, "url": "not a url", "doi": None}]},
                 ]}
+    if kind == "chat":
+        import re
+        q = prompt.rsplit("USER:", 1)[-1].split("\n\nRespond with", 1)[0].lower()
+        ids = re.search(r"Valid node ids: \[([^\]]*)\]", prompt)
+        nodes = [x.strip().strip("'\"") for x in ids.group(1).split(",")] if ids and ids.group(1).strip() else []
+        target = next((n for n in nodes if n in ("treat", "treated", "program")), nodes[0] if nodes else None)
+        if "investigat" in q and target:
+            return {"reply": f"I've started a literature search on what drives '{target}'. It runs in the background "
+                             "(30 s to 2 min); its findings will be hypothetical leads from published research, not "
+                             "results from your data.", "cards": [], "investigate": target}
+        if "support" in q or "estimate" in q:
+            m = re.search(r'"estimate": (-?[0-9.]+)', prompt)
+            return {"reply": f"Fake Investigator: the estimate is {m.group(1) if m else 'not available'}.",
+                    "cards": [{"kind": "estimate", "ref": None}, {"kind": "check", "ref": "no_such_check"}],
+                    "investigate": None}
+        if "problem" in q:
+            return {"reply": "Fake Investigator: look at the balance check.", "cards": [{"kind": "check", "ref": "balance"}],
+                    "investigate": None}
+        return {"reply": "Fake Investigator: ask about the estimate, a check, or start an investigation.",
+                "cards": [{"kind": "graph", "ref": None}], "investigate": None}
     if kind == "summary":
         return "Fake executive summary: the analysis ran end to end in test mode."
     if kind == "probe":
