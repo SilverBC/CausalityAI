@@ -89,7 +89,8 @@ export function useInvestigations(jobId) {
   const start = (node) => act(() => startInvestigation(jobId, node));
   const startMany = (nodes) => act(async () => {
     const r = await startInvestigations(jobId, nodes);
-    if (r.skipped?.length) setError(`${r.skipped.length} could not be queued: the queue is full (40 at most). Cancel some or wait.`);
+    if (r.limited) setError(`${r.skipped.length} could not be queued. ${r.limited}`);
+    else if (r.skipped?.length) setError(`${r.skipped.length} could not be queued: the queue is full (40 at most). Cancel some or wait.`);
     return r;
   });
   const cancel = (node) => act(() => deleteInvestigation(jobId, node)); // nothing has run yet: no question asked

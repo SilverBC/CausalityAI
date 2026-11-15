@@ -102,6 +102,10 @@ def run(prompt: str, schema: Optional[dict] = None, web: bool = False, system: O
     if not available():
         _fail("No language model is configured (install Claude Code, set ANTHROPIC_API_KEY, or set CAUSAL_LLM).")
         return None
+    from . import limits  # late: limits imports store, which must not import llm
+    if not limits.spend_llm_call():
+        _fail(limits.BUDGET_MESSAGE)
+        return None
     try:
         b = backend()
         out = _fake(prompt, schema, kind) if b == "fake" else \

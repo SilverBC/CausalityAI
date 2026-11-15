@@ -60,6 +60,9 @@ TABLES = {
             cards TEXT NOT NULL DEFAULT '[]', created REAL NOT NULL);
         CREATE INDEX IF NOT EXISTS messages_by_chat ON messages(chat_id, created);
     """,
+    "llm_usage": """
+        CREATE TABLE IF NOT EXISTS llm_usage (day TEXT PRIMARY KEY, calls INTEGER NOT NULL);
+    """,
 }
 MIGRATIONS: list[tuple[str, str, str]] = [   # (table, column, declaration)
     ("analyses", "mail_status", "TEXT"),        # stage 04: outcome of the "analysis ready" email

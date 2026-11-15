@@ -14,13 +14,13 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, Response, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from causality import data, sim
 from causality.data import InputError
-from services import auth, chat, graph, investigate, jobs, llm, mailer, store
+from services import auth, chat, graph, investigate, jobs, limits, llm, mailer, store
 from services.config import FRONTEND_DIST, MAX_UPLOAD_BYTES, SAMPLES_DIR
 from services.auth import owned_analysis, owned_chat, owner_of, require_owner
 
@@ -33,13 +33,21 @@ if _interrupted:
     print(f"[startup] {_interrupted} analysis run(s) were interrupted by the restart.", flush=True)
 
 
+
+
+@app.exception_handler(limits.RateLimited)
+def _rate_limited(request: Request, e: limits.RateLimited):
+    return JSONResponse({"detail": str(e)}, status_code=429, headers={"Retry-After": str(e.retry_after)})
+
+
 # --------------------------------------------------------------------------------------------- health
 @app.get("/api/health")
-def health(probe: bool = False):
-    """Language-model availability and its last error. probe=true makes one tiny call to check it really works."""
+def health(request: Request, probe: bool = False):
+    """Language-model availability and its last error, and the demo limits. probe=true makes one tiny call to check
+    it really works (only from this computer when limits are on: it spends the Claude budget)."""
     out = {"ok": True, "llm": llm.available(), "llm_backend": llm.backend(), "llm_label": llm.describe(),
-           "llm_last_error": llm.last_error(), "email": mailer.available()}
-    if probe and out["llm"]:
+           "llm_last_error": llm.last_error(), "email": mailer.available(), "limits": limits.status()}
+    if probe and out["llm"] and not limits.applies(request):
         reply = llm.run("Reply with the single word: ok", timeout=60, kind="probe")
         out["probe_ok"] = bool(reply)
         out["llm_last_error"] = llm.last_error()
@@ -120,13 +128,20 @@ def sample_file(name: str):
 
 
 # --------------------------------------------------------------------------------------------- uploads
-async def _read_upload(file: Optional[UploadFile]) -> tuple[bytes, str]:
+async def _read_upload(file: Optional[UploadFile], request: Optional[Request] = None) -> tuple[bytes, str]:
     if file is None:
         return b"", ""
+    cap = min(MAX_UPLOAD_BYTES, limits.max_upload_bytes()) if request is not None and limits.applies(request) else MAX_UPLOAD_BYTES
     content = await file.read()
-    if len(content) > MAX_UPLOAD_BYTES:
-        raise HTTPException(413, "The file is larger than 50 MB.")
+    if len(content) > cap:
+        raise HTTPException(413, f"The file is larger than {cap // (1024 * 1024)} MB.")
     return content, file.filename or "data.csv"
+
+
+def _check_rows(request: Request, df) -> None:
+    if limits.applies(request) and len(df) > limits.max_rows():
+        raise HTTPException(413, f"The demo analyses at most {limits.max_rows():,} rows; this file has {len(df):,}. "
+                                 "Upload a sample of it.")
 
 
 def _load(content: bytes, filename: str):
@@ -153,8 +168,9 @@ def _json_field(raw: Optional[str], name: str) -> dict:
 
 
 @app.post("/api/columns")
-async def columns(file: UploadFile = File(...)):
-    df = _load(*(await _read_upload(file)))
+async def columns(request: Request, file: UploadFile = File(...)):
+    df = _load(*(await _read_upload(file, request)))
+    _check_rows(request, df)
     prep = data.prepare(df)
     return {"n_rows": int(len(df)),
             "columns": [{"name": c.name, "kind": c.kind, "n_missing": c.n_missing, "n_unique": c.n_unique}
@@ -168,16 +184,19 @@ async def analyze(request: Request, file: Optional[UploadFile] = File(None), cla
                   online_literature: str = Form("false"), notify: str = Form("0")):
     """Start an analysis in the background. Mode: audit (claim + data), explore (data), claim-only (claim)."""
     owner = require_owner(request)
-    content, filename = await _read_upload(file)
+    content, filename = await _read_upload(file, request)
     claim = (claim or "").strip()
     if not content and not claim:
         raise HTTPException(400, "Provide a dataset, a causal claim, or both.")
     if content:
-        _load(content, filename)  # fail fast on unreadable files, before creating a row
+        _check_rows(request, _load(content, filename))  # fail fast on unreadable files, before creating a row
     mode = ("audit" if claim else "explore") if content else "claim-only"
     if mode == "claim-only" and not llm.available():
         raise HTTPException(503, "A claim without data needs Claude for the literature search, and no language model "
                                  "is configured. Upload a dataset to analyse the claim from data.")
+    if mode == "claim-only":
+        limits.require_budget()
+    limits.check(request, "claim" if mode == "claim-only" else "analyze", owner)
     params = {"design": design or None, "roles": _json_field(roles, "roles"), "confirm": _json_field(confirm, "confirm"),
               "online_literature": online_literature.lower() == "true"}
     user = auth.current_user(request)  # emails only go to signed-in users who ask for one
@@ -275,6 +294,8 @@ def send_message(chat_id: str, msg: ChatMessage, request: Request):
         raise HTTPException(400, "The message is empty.")
     if len(text) > chat.MAX_MESSAGE:
         raise HTTPException(400, f"Messages are limited to {chat.MAX_MESSAGE:,} characters.")
+    limits.require_budget()
+    limits.check(request, "chat", a["owner"])
     try:
         return chat.send(c, a, text)
     except chat.ChatUnavailable as e:
@@ -294,6 +315,7 @@ def answer(job_id: str, body: Answers, request: Request):
         raise HTTPException(409, "The analysis is still running.")
     if a["mode"] == "claim-only":
         raise HTTPException(409, "A claim-only analysis has nothing to answer.")
+    limits.check(request, "analyze", a["owner"])
     params = dict(a["params"])
     params["confirm"] = {**(params.get("confirm") or {}), **{k: v for k, v in body.confirm.items() if v}}
     if body.design:
@@ -366,6 +388,7 @@ def me(request: Request):
 
 @app.post("/api/auth/signup")
 def signup(creds: Credentials, request: Request, response: Response):
+    limits.check(request, "signup")
     try:
         user = auth.signup(creds.email, creds.password)
     except auth.AuthError as e:
@@ -377,9 +400,11 @@ def signup(creds: Credentials, request: Request, response: Response):
 
 @app.post("/api/auth/login")
 def login(creds: Credentials, request: Request, response: Response):
+    limits.check(request, "login_fail", record=False)  # only failures count
     try:
         user = auth.login(creds.email, creds.password)
     except auth.AuthError as e:
+        limits.record(request, "login_fail")
         raise HTTPException(401, str(e))
     return _signed_in(request, response, user)
 
@@ -409,7 +434,13 @@ def _investigable(request: Request, job_id: str) -> dict:
     if not llm.available():
         raise HTTPException(503, "Investigations search the literature with Claude, and no language model is "
                                  "configured (install Claude Code, set ANTHROPIC_API_KEY, or set CAUSAL_LLM).")
+    limits.require_budget()
     return a
+
+
+def _already(job_id: str, node: str) -> bool:
+    """A queued, running or finished investigation of this node: starting it again costs nothing (start is idempotent)."""
+    return any(i["node"] == node and i["status"] != "error" for i in store.list_investigations(job_id))
 
 
 def _in_data(a: dict, req: InvestigateRequest) -> bool:
@@ -428,6 +459,8 @@ def list_investigations(job_id: str, request: Request):
 def start_investigation(job_id: str, req: InvestigateRequest, request: Request):
     """Search the literature for what causes one variable (runs in the background; queued if 3 already run)."""
     a = _investigable(request, job_id)
+    if not _already(job_id, req.node):
+        limits.check(request, "investigate", a["owner"])
     try:
         return investigate.start(a, req.node, req.label or req.node, _in_data(a, req))
     except investigate.QueueFull as e:
@@ -438,15 +471,23 @@ def start_investigation(job_id: str, req: InvestigateRequest, request: Request):
 def start_batch(job_id: str, req: BatchRequest, request: Request):
     """Queue investigations of several variables (at most 100 per request). Stops at the queue limit."""
     a = _investigable(request, job_id)
-    queued, skipped = [], []
+    queued, skipped, limited = [], [], None
     for n in req.nodes[:100]:
+        if limited:
+            skipped.append(n.node)
+            continue
         try:
+            if not _already(job_id, n.node):
+                limits.check(request, "investigate", a["owner"])
             queued.append(investigate.start(a, n.node, n.label or n.node, _in_data(a, n)))
         except investigate.QueueFull:
             skipped.append(n.node)
+        except limits.RateLimited as e:
+            limited = str(e)
+            skipped.append(n.node)
     n = investigate.counts(job_id)
     # `queued` lists what this request started or queued; the counts describe the whole queue afterwards
-    return {"queued": queued, "skipped": skipped, "running": n["running"], "queued_count": n["queued"]}
+    return {"queued": queued, "skipped": skipped, "limited": limited, "running": n["running"], "queued_count": n["queued"]}
 
 
 @app.post("/api/jobs/{job_id}/investigations/cancel-queued")

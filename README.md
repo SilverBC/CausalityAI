@@ -64,8 +64,29 @@ which backend is active and its last error; `?probe=true` makes one tiny call to
 
 uvicorn listens on `127.0.0.1`, so only this computer can reach the app. `--host 0.0.0.0` makes it reachable by
 anyone on your network. With the `cli` backend every summary or literature search they trigger then runs on your
-own Claude subscription and uses up your limits. There are no rate limits yet. Any shared or public deployment
-needs the `api` backend, accounts and rate limits.
+own Claude subscription, so the demo limits below are on by default.
+
+### Demo limits
+
+`services/limits.py`. Over a limit the API answers 429 with `Retry-After` and a plain message, which the page shows.
+
+| Limit | Default | Setting |
+|---|---|---|
+| Claude calls per day, whole server (survives restarts; past it, chat, investigations and claim-only searches stop, and summaries fall back to the template) | 300 | `CAUSAL_LLM_DAILY` |
+| Analyses per person per hour (re-runs after answering questions count) | 10 | `CAUSAL_LIMIT_ANALYSES` |
+| Claim-only searches per person per hour | 5 | `CAUSAL_LIMIT_CLAIMS` |
+| Investigations per person per hour | 15 | `CAUSAL_LIMIT_INVESTIGATIONS` |
+| Chat messages per person per hour (and one every 3 s) | 30 | `CAUSAL_LIMIT_CHAT` |
+| Per network address: the per-person limits times | 4 | `CAUSAL_LIMIT_IP_FACTOR` |
+| Sign-ups per address per hour / failed log-ins per address per 15 min | 10 / 10 | `CAUSAL_LIMIT_SIGNUPS`, `CAUSAL_LIMIT_LOGIN_FAILS` |
+| Upload size / rows | 20 MB / 200,000 | `CAUSAL_MAX_UPLOAD_MB`, `CAUSAL_MAX_ROWS` |
+| Analyses computing at once, for everyone (the rest wait, shown as a step) | 2 | `CAUSAL_MAX_ANALYSES` |
+
+A person is an account or a guest id. Requests from this computer itself are exempt from everything except the
+daily budget and the concurrency cap. Behind a tunnel on this machine (cloudflared, ngrok) requests are limited and
+keyed by the visitor's address from `CF-Connecting-IP` / `X-Forwarded-For`; those headers are ignored from any other
+peer, so they cannot be faked. `CAUSAL_LIMITS=off` turns the limits off (the tests do). `GET /api/health` shows
+today's Claude count.
 
 ### Investigations: beyond the data
 

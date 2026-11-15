@@ -18,7 +18,7 @@ from causality import data, pipeline, units
 from causality.data import InputError
 from causality.schema import Roles, to_jsonable
 
-from . import graph, llm, mailer, store
+from . import graph, limits, llm, mailer, store
 
 STEP_LABELS = {
     "read": "Read the file",
@@ -103,6 +103,18 @@ def run(analysis_id: str) -> None:
     a = store.get_analysis(analysis_id)
     if not a:
         return
+    slots = limits.analysis_slots()
+    if not slots.acquire(blocking=False):  # everyone shares the machine: wait for a free slot, visibly
+        store.update_analysis(analysis_id, steps=[{"key": "wait", "status": "running", "seconds": None,
+                                                   "label": f"Waiting for a free slot (the server runs {limits.max_analyses()} at a time)"}])
+        slots.acquire()
+    try:
+        _run(analysis_id, store.get_analysis(analysis_id) or a)
+    finally:
+        slots.release()
+
+
+def _run(analysis_id: str, a: dict) -> None:
     steps = Steps(analysis_id, a["mode"])
     try:
         if a["mode"] == "claim-only":
