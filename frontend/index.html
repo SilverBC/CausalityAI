@@ -1,93 +1,23 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>CausalityAI</title>
-<meta name="description" content="Check whether a dataset backs a causal claim, or explore what may cause what.">
-<link rel="stylesheet" href="style.css">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="Check whether data supports a causal claim, or explore what causes what." />
+  <title>Causal Audit</title>
+  <link rel="icon" href="/icons/favicon.svg" type="image/svg+xml" />
+  <link rel="icon" href="/icons/logo-32.png" sizes="32x32" type="image/png" />
+  <link rel="apple-touch-icon" href="/icons/logo-180.png" />
+  <script>
+    /* Apply a stored light/dark choice before the first paint (no flash). Without one, CSS follows the device. */
+    try {
+      var t = localStorage.getItem("causal-audit:theme");
+      if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
+    } catch (e) { /* storage blocked: follow the device */ }
+  </script>
 </head>
 <body>
-<header class="site-head">
-  <div class="wrap">
-    <h1 class="brand">Causality<span>AI</span></h1>
-    <p class="tagline">Does your data back the causal claim? We test what can be tested, and say plainly what can only be assumed.</p>
-  </div>
-</header>
-
-<main class="wrap">
-  <form id="analyze-form" class="card form-card" novalidate>
-    <div id="drop" class="drop" tabindex="0" role="button" aria-describedby="drop-help">
-      <input type="file" id="file" name="file" accept=".csv,.tsv,.txt,.xlsx,.xls,.json" class="visually-hidden">
-      <label for="file" class="drop-inner">
-        <span class="drop-icon" aria-hidden="true">⇪</span>
-        <span class="drop-title">Drop a data file here, or <u>choose one</u></span>
-        <span id="drop-help" class="small muted">CSV, TSV, Excel or JSON. One row per unit (or per unit and time).</span>
-        <span id="file-name" class="file-name">No file chosen</span>
-      </label>
-    </div>
-    <p id="columns-info" class="small muted" aria-live="polite"></p>
-
-    <label class="field" for="claim">
-      <span class="field-label">Your claim (optional)</span>
-      <input type="text" id="claim" name="claim" placeholder="X increases Y by 15% among Z" autocomplete="off">
-    </label>
-    <p class="small muted mode-hint">With a sentence, we <strong>audit</strong> it. Without one, we <strong>explore</strong> what may cause what.</p>
-
-    <details class="roles-panel">
-      <summary>Study design and roles (optional)</summary>
-      <div class="roles-grid">
-        <label class="field" for="design"><span class="field-label">Study design</span>
-          <select id="design" name="design">
-            <option value="">Let us work it out</option>
-            <option value="experiment">Randomized experiment</option>
-            <option value="did">Difference-in-differences (before / after, treated / not)</option>
-            <option value="iv">Instrumental variable</option>
-            <option value="rd">Regression discontinuity (a cutoff)</option>
-            <option value="observational">Observational comparison</option>
-          </select>
-        </label>
-        <label class="field" for="role-treatment"><span class="field-label">Treatment (the cause)</span><select id="role-treatment"><option value="">— upload a file first —</option></select></label>
-        <label class="field" for="role-outcome"><span class="field-label">Outcome (the effect)</span><select id="role-outcome"><option value="">— upload a file first —</option></select></label>
-        <label class="field" for="role-unit"><span class="field-label">Unit id</span><select id="role-unit"><option value="">— upload a file first —</option></select></label>
-        <label class="field" for="role-time"><span class="field-label">Time</span><select id="role-time"><option value="">— upload a file first —</option></select></label>
-        <label class="field" for="role-instrument"><span class="field-label">Instrument</span><select id="role-instrument"><option value="">— upload a file first —</option></select></label>
-        <label class="field" for="role-running"><span class="field-label">Running variable</span><select id="role-running"><option value="">— upload a file first —</option></select></label>
-        <label class="field" for="role-cutoff"><span class="field-label">Cutoff</span><input type="number" step="any" id="role-cutoff" inputmode="decimal" placeholder="e.g. 50"></label>
-        <label class="field" for="role-cluster"><span class="field-label">Cluster</span><select id="role-cluster"><option value="">— upload a file first —</option></select></label>
-        <label class="field" for="role-strata"><span class="field-label">Strata</span><select id="role-strata"><option value="">— upload a file first —</option></select></label>
-        <label class="field" for="role-saturation"><span class="field-label">Saturation (share treated per cluster)</span><select id="role-saturation"><option value="">— upload a file first —</option></select></label>
-      </div>
-      <fieldset class="post-fieldset">
-        <legend class="field-label">Columns measured after treatment</legend>
-        <p class="small muted">We never adjust for these: they can be changed by the treatment itself.</p>
-        <div id="post-list" class="check-list"><p class="muted small">Upload a file to list its columns.</p></div>
-      </fieldset>
-      <label class="check"><input type="checkbox" id="randomized"> Treatment was randomized</label>
-      <p class="small muted indent">We never call something an experiment unless you say so.</p>
-    </details>
-
-    <label class="check"><input type="checkbox" id="online"> Search for related reading online <span class="muted">(sends only the treatment and outcome words)</span></label>
-
-    <div class="actions">
-      <button type="submit" id="analyze-btn" class="btn primary"><span class="spinner" aria-hidden="true"></span><span class="btn-text">Analyze</span></button>
-    </div>
-  </form>
-
-  <div id="banner" class="banner" role="alert" hidden></div>
-
-  <div id="export-bar" class="export-bar" hidden>
-    <button type="button" id="dl-json" class="btn">Download JSON</button>
-    <button type="button" id="dl-html" class="btn">Download HTML</button>
-  </div>
-
-  <div id="results" aria-live="polite"></div>
-</main>
-
-<footer class="site-foot wrap small muted">CausalityAI never claims more than the data can show. “Assumed” is never a pass.</footer>
-
-<script src="charts.js"></script>
-<script src="app.js"></script>
-<script src="export.js"></script>
+  <div id="root"></div>
+  <script type="module" src="/src/main.jsx"></script>
 </body>
 </html>

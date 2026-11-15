@@ -1,0 +1,16 @@
+.git
+.venv
+venv
+**/__pycache__
+**/*.pyc
+.pytest_cache
+.DS_Store
+.env
+data
+rebuild-plan
+prompt-log
+frontend/node_modules
+frontend/dist
+frontend/e2e
+backend/tests
+samples/real/raw

@@ -1,0 +1,2 @@
+# Development and test tools (not needed to run the app)
+playwright>=1.45

@@ -120,17 +120,29 @@ def _population_mask(prep: Prepared, filt: dict) -> pd.Series:
 
 # ------------------------------------------------------------------------------- run
 def run(raw: pd.DataFrame, claim_text: str = "", design_decl: Optional[str] = None,
-        roles: Optional[dict] = None, confirm: Optional[dict] = None, online_literature: bool = False) -> Report:
+        roles: Optional[dict] = None, confirm: Optional[dict] = None, online_literature: bool = False,
+        progress: Optional[Callable[[str], None]] = None) -> Report:
+    """`progress`, if given, is called with a stage key as each stage starts (live status for the web app).
+    It never changes the result."""
+    def stage(key: str) -> None:
+        if progress is not None:
+            try:
+                progress(key)
+            except Exception:  # noqa: BLE001  (a broken progress reporter must not break the analysis)
+                pass
+
     claim_text = (claim_text or "").strip()
     confirm = {k: v for k, v in (confirm or {}).items() if v}
     hint: Optional[str] = None
     roles_obj = parse_roles(roles)
     report = Report(mode="audit" if claim_text else "explore")
 
+    stage("prepare")
     # 1. preparation with declared roles (needed for column matching)
     prep0 = data.prepare(raw, Roles(**{**roles_obj.__dict__, "post_treatment": list(roles_obj.post_treatment)}))
 
     claim: Optional[Claim] = None
+    stage("claim")
     if claim_text:
         from .claim import parse_claim
         claim = _safe(report, "claim", "Reading the claim", lambda: parse_claim(claim_text, prep0), default=None)
@@ -193,10 +205,12 @@ def run(raw: pd.DataFrame, claim_text: str = "", design_decl: Optional[str] = No
     has_treatment = bool(prep.roles.treatment and prep.roles.outcome)
     if not has_treatment:
         report.mode = "explore"
+        stage("explore")
         report.explore = _safe(report, "explore", "Exploration", lambda: _explore(prep))
         report.data = data.summary(prep)
         return report
 
+    stage("design")
     # 4. design
     design = data.resolve_design(prep, design_decl or None, hint=hint)
     report.design = design
@@ -208,7 +222,7 @@ def run(raw: pd.DataFrame, claim_text: str = "", design_decl: Optional[str] = No
 
     # 5-6. identification checks; their result is then used as a reference for the design:
     # a guessed design whose own relevance test fails is dropped, and the checks are re-run
-    ident = _identification(report, prep, design, claim, online_literature)
+    ident = _identification(report, prep, design, claim, online_literature, stage)
     new_kind = _reclassify(design, ident)
     if new_kind:
         old = design
@@ -218,13 +232,14 @@ def run(raw: pd.DataFrame, claim_text: str = "", design_decl: Optional[str] = No
                                         "The identification checks were run again for the new design."]
         design.scores = old.scores
         report.design = design
-        ident = _identification(report, prep, design, claim, online_literature)
+        ident = _identification(report, prep, design, claim, online_literature, stage)
     bal, ov, att, inter, lit = ident["bal"], ident["ov"], ident["att"], ident["inter"], ident["lit"]
     design_sections = ident["design_sections"]
     _balance_reference(design, prep, bal)
     report.data = data.summary(prep)  # adjustment set is now frozen
     from . import design_assess
 
+    stage("estimate")
     # 7. estimate, then sensitivity to hidden confounding
     from . import estimate as est_mod
     est = _safe(report, "estimate", "Estimation", lambda: est_mod.estimate(prep, design, claim), default=None)
@@ -234,6 +249,7 @@ def run(raw: pd.DataFrame, claim_text: str = "", design_decl: Optional[str] = No
     est = _event_study_setup(report, prep, design, ident, est)
     ov = ident["ov"]
     report.estimate = est
+    stage("sensitivity")
     from .checks import sensitivity
     sens = _safe(report, "hidden_confounding", CHECK_TITLES["hidden_confounding"],
                  lambda: sensitivity.run(prep, design, claim, est))
@@ -245,6 +261,7 @@ def run(raw: pd.DataFrame, claim_text: str = "", design_decl: Optional[str] = No
         sections.append(lit)
     report.sections = sections
 
+    stage("verdict")
     # 8. grade, estimand, verdict, next study, diagram
     est_card = Section(key="estimate", title="Estimate",
                        error=est.refusal_reason if est.refused else None)
@@ -271,6 +288,7 @@ def run(raw: pd.DataFrame, claim_text: str = "", design_decl: Optional[str] = No
     report.dag = _safe(report, "dag", "Assumed causal diagram", lambda: design_assess.dag(prep, design, claim), default=None)
 
     if report.mode == "explore":
+        stage("explore")
         report.explore = _safe(report, "explore", "Exploration", lambda: _explore(prep))
 
     report.assumed_panel = assumed_panel(design, sections)
@@ -278,16 +296,20 @@ def run(raw: pd.DataFrame, claim_text: str = "", design_decl: Optional[str] = No
     return report
 
 
-def _identification(report: Report, prep: Prepared, design: Design, claim: Optional[Claim], online: bool) -> dict:
+def _identification(report: Report, prep: Prepared, design: Design, claim: Optional[Claim], online: bool,
+                    stage: Callable[[str], None] = lambda key: None) -> dict:
     """Balance first (suspected post-treatment columns leave the single adjustment set), then
-    overlap, missing outcomes, interference, reading list and the design's own tests."""
+    overlap, missing outcomes, interference, reading list and the design's own tests.
+    `stage` reports progress to the web app (see run)."""
     from . import design_assess
     from .checks import attrition, balance, interference, literature, overlap
+    stage("balance")
     bal = _safe(report, "balance", CHECK_TITLES["balance"], lambda: balance.run(prep, design, claim))
     sus = ((bal.metrics or {}).get("suspected_post_treatment") or []) if bal else []
     if sus and prep.roles.randomized:
         data.mark_post_treatment(prep, list(sus), "under randomization, treatment strongly predicts it, so it was "
                                                   "most likely measured after treatment.")
+    stage("checks")
     ov = _safe(report, "overlap", CHECK_TITLES["overlap"], lambda: overlap.run(prep, design, claim))
     att = _safe(report, "missing_outcomes", CHECK_TITLES["missing_outcomes"], lambda: attrition.run(prep, design, claim))
     inter = _safe(report, "interference", CHECK_TITLES["interference"], lambda: interference.run(prep, design, claim))
