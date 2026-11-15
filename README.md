@@ -53,8 +53,7 @@ with no data. They run on Google Gemini (a free-tier key is enough): put `GEMINI
 GEMINI_API_KEY=... docker compose up --build
 ```
 
-The header badge still says "Claude ..." (the front end was not renamed); hover it, or see `GET /api/health`
-(`llm_backend`, `llm_label`), to see that Gemini is the one answering.
+`GET /api/health` (`llm_backend`, `llm_label`) shows which model is answering, if any.
 
 ## Run
 

@@ -98,7 +98,7 @@ export default function App() {
   }, [job]);
 
   useEffect(() => { fetchHealth().then(setHealth).catch(() => setHealth({ llm: false })); }, []);
-  // refresh the Claude badge once an analysis finishes (a summary may have failed)
+  // refresh Claude's availability once an analysis finishes (a summary may have failed)
   useEffect(() => { if (job && job.status !== "running") fetchHealth().then(setHealth).catch(() => {}); }, [job?.status]); // eslint-disable-line react-hooks/exhaustive-deps
   // on narrow screens the sidebar overlays the page: close it after navigating
   useEffect(() => { if (!wide()) setSideOpen(false); }, [route.page, jobId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -177,7 +177,7 @@ export default function App() {
 
   return (
     <>
-      <Header health={health} route={route} graphJobId={graphJobId} sideOpen={sideOpen} onToggleSidebar={() => setSideOpen(!sideOpen)} />
+      <Header route={route} graphJobId={graphJobId} sideOpen={sideOpen} onToggleSidebar={() => setSideOpen(!sideOpen)} />
       <div className={`shell${sideOpen ? " side-open" : ""}`}>
         {sideOpen && (
           <>

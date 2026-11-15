@@ -94,12 +94,6 @@ select:disabled { opacity: .6; }
 .nav-links a:hover { color: var(--ink); background: var(--panel2); }
 .nav-links a[aria-current="page"] { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .nav-links .disabled { opacity: .5; cursor: not-allowed; }
-.badge { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: .78rem; white-space: nowrap;
-  border: 1px solid var(--line); background: var(--panel2); color: var(--muted); }
-.badge-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
-.badge.on { color: var(--pass); } .badge.on .badge-dot { background: var(--pass); }
-.badge.warn { color: var(--warn); } .badge.warn .badge-dot { background: var(--warn); }
-.badge.muted .badge-dot { animation: pulse 1.2s infinite; }
 .theme-toggle { border-color: var(--line); background: var(--panel2); }
 .theme-toggle svg { transition: transform .3s ease; }
 .theme-toggle:active svg { transform: rotate(-30deg) scale(.9); }
@@ -271,17 +265,11 @@ html.theme-fade, html.theme-fade *, html.theme-fade *::before, html.theme-fade *
   .topbar { padding: 0 12px; gap: 8px; }
   .topbar-left { gap: 10px; }
 }
-@media (max-width: 900px) {
-  /* Claude badge: the dot only */
-  .topbar .badge { padding: 0; width: 22px; height: 26px; justify-content: center; border-color: transparent; background: transparent; }
-  .badge .badge-text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-  .badge .badge-dot { width: 10px; height: 10px; }
-}
 @media (max-width: 560px) {
   /* one row at 390 px: the logo goes (the Analysis link is home), spacing tightens */
   .topbar { padding: 0 8px; gap: 4px; }
   .topbar-left { gap: 4px; }
-  .topbar .badge, .topbar .brand { display: none; }
+  .topbar .brand { display: none; }
   .topbar-right { gap: 2px; }
   .side-toggle { margin-right: 0; }
   .nav-links { gap: 0; }
@@ -826,7 +814,7 @@ pre.code.estimand { max-height: 260px; overflow: auto; white-space: pre-wrap; }
 /* ===== Reduced motion: every animation has a still alternative ===== */
 @media (prefers-reduced-motion: reduce) {
   .spinner { animation-duration: 2.4s; }
-  .step.running .dot, .badge.muted .badge-dot { animation: none; }
+  .step.running .dot { animation: none; }
   .drop, .theme-toggle svg { transition: none; }
 }
 .output-anchor { height: 0; scroll-margin-top: calc(var(--topbar) + 12px); }

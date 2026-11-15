@@ -2,23 +2,7 @@ import { AccountButton } from "../auth.jsx";
 import { ThemeToggle } from "../theme.jsx";
 import { Logo, SidebarIcon } from "./icons.jsx";
 
-/** Claude status from /api/health: the analysis itself never needs it, summaries and literature searches do. */
-function ClaudeBadge({ health }) {
-  let b = { cls: "muted", text: "Checking Claude…", title: "Checking which language model is available" };
-  if (health) {
-    if (!health.llm) b = { cls: "off", text: "Claude not connected", title: "No language model: summaries use a template. The analysis itself does not need one." };
-    else if (health.llm_last_error) b = { cls: "warn", text: "Claude unavailable", title: `Claude is unavailable: ${health.llm_last_error}` };
-    else b = { cls: "on", text: health.llm_backend === "cli" ? "Claude Code connected" : health.llm_backend === "fake" ? "Test mode (fake Claude)" : "Claude API connected", title: health.llm_label };
-  }
-  return (
-    <span className={`badge ${b.cls}`} title={b.title} role="status">
-      <i className="badge-dot" aria-hidden="true" />
-      <span className="badge-text">{b.text}</span>
-    </span>
-  );
-}
-
-export default function Header({ health, route, graphJobId, sideOpen, onToggleSidebar }) {
+export default function Header({ route, graphJobId, sideOpen, onToggleSidebar }) {
   return (
     <header className="topbar">
       <div className="topbar-left">
@@ -39,7 +23,6 @@ export default function Header({ health, route, graphJobId, sideOpen, onToggleSi
         </nav>
       </div>
       <div className="topbar-right">
-        <ClaudeBadge health={health} />
         <ThemeToggle />
         <AccountButton />
       </div>
