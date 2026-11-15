@@ -28,7 +28,7 @@ def available() -> bool:
 
 
 def _sender() -> str:
-    return os.environ.get("MAIL_FROM") or "Causal Audit <onboarding@resend.dev>"
+    return os.environ.get("MAIL_FROM") or "Bluff-or-Buff <onboarding@resend.dev>"
 
 
 def send_resend(to: str, subject: str, html_body: str, text_body: str) -> Optional[str]:
@@ -109,7 +109,7 @@ def compose(a: dict) -> tuple[str, str, str]:
             + "".join(f"<p>{html.escape(x)}</p>" for x in lines)
             + f"<p><a href='{html.escape(link)}' style='display:inline-block;background:#4f46e5;color:#fff;"
               "padding:10px 16px;border-radius:8px;text-decoration:none;font-weight:600'>Open the analysis</a></p>"
-              "<p style='color:#64748b;font-size:13px'>You asked Causal Audit to email you when this analysis "
+              "<p style='color:#64748b;font-size:13px'>You asked Bluff-or-Buff to email you when this analysis "
               "finished.</p></div>")
     return subject, body, text
 

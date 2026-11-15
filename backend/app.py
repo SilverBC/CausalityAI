@@ -26,7 +26,7 @@ from services.auth import owned_analysis, owned_chat, owner_of, require_owner
 
 warnings.filterwarnings("ignore")
 
-app = FastAPI(title="Causal Audit", version="2.0")
+app = FastAPI(title="Bluff-or-Buff", version="2.0")
 store.init()
 _interrupted = store.interrupt_running()
 if _interrupted:
@@ -690,9 +690,9 @@ if FRONTEND_DIST.is_dir():
 else:
     @app.get("/", response_class=HTMLResponse)
     def frontend_not_built():
-        return ("<!doctype html><meta charset='utf-8'><title>Causal Audit</title>"
+        return ("<!doctype html><meta charset='utf-8'><title>Bluff-or-Buff</title>"
                 "<body style='font:16px/1.5 system-ui,sans-serif;max-width:640px;margin:60px auto;padding:0 16px'>"
-                "<h2>The Causal Audit API is running, but the web app is not built yet.</h2>"
+                "<h2>The Bluff-or-Buff API is running, but the web app is not built yet.</h2>"
                 "<p>Build it once with <code>cd frontend &amp;&amp; npm install &amp;&amp; npm run build</code>, then reload "
                 "this page. While developing, run <code>npm run dev</code> in <code>frontend/</code> and open "
                 "<a href='http://localhost:5173'>http://localhost:5173</a>.</p>"

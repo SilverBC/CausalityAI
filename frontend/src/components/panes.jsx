@@ -778,7 +778,7 @@ export function pythonSteps(job, rep) {
   const roles = Object.fromEntries(Object.entries(rep?.data?.roles || p.roles || {}).filter(([, v]) => v !== null && !(Array.isArray(v) && !v.length) && v !== false));
   const audit = rep?.mode !== "explore";
   const steps = [];
-  steps.push(["load", `"""Reproduce the Causal Audit analysis "${job.title}" step by step.
+  steps.push(["load", `"""Reproduce the Bluff-or-Buff analysis "${job.title}" step by step.
 Put ${name} next to this script; run it from the project's backend/ folder (or add backend/ to PYTHONPATH)."""
 import pandas as pd
 
