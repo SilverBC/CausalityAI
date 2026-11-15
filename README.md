@@ -219,3 +219,21 @@ each through the whole pipeline.
 * A confounded observational dataset with no measured confounder (see `sim.observational_hidden`)
   will still read "Partly supported … if no unmeasured confounding": the data cannot reveal it.
   The sensitivity card and the assumed panel are what make that visible.
+
+## Model-led audit (backend only, not yet in the web app)
+
+A second way to audit a claim lives in `backend/causality/orchestrator/`. The model decides and
+judges; the code computes numbers and reports them without pass or fail labels. It is reachable from
+the command line and from `/api/audit`; the web app does not call it yet.
+
+| What | Where |
+|---|---|
+| Optional helper commands for a model that analyses the table itself (layout facts, design tests, estimates, general checks, sensitivity) | `backend/free_cli.py` |
+| The same, as an agent on Gemini: the model runs its own Python and may call the tools above | `orchestrator/free_agent.py` |
+| Model as orchestrator of fixed tools, with floor rules on the verdict, questions to the user and follow-ups | `orchestrator/loop.py`, `floor.py`, `evidence.py`, `backend/audit_cli.py`, `POST /api/audit` |
+| Model clients: Anthropic SDK, headless Claude Code (no API key), Gemini | `orchestrator/loop.py`, `headless.py`, `gemini.py` |
+| Tool layer that takes the design and columns as inputs and prints numbers only | `backend/causality/agent.py`, `backend/agent_cli.py` |
+
+Settings for Gemini go in `.env` (see `.env.example`): `GEMINI_API_KEY`, `GEMINI_MODEL`, `GEMINI_RPM`.
+The contracts are `ORCHESTRATOR.md` and `ORCHESTRATOR_MERGED.md`. Scripts a model writes are run on
+this machine inside a temporary folder, with a time limit and no keys in their environment.
