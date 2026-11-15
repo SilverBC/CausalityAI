@@ -18,10 +18,11 @@ from causality import data, pipeline, units
 from causality.data import InputError
 from causality.schema import Roles, to_jsonable
 
-from . import graph, limits, llm, mailer, store
+from . import graph, limits, llm, mailer, model_audit, store
 
 STEP_LABELS = {
     "read": "Read the file",
+    "model": "The model reads the claim, picks the design and judges",
     "prepare": "Prepare the data (types, missing values, duplicates)",
     "claim": "Read the claim",
     "design": "Work out the study design",
@@ -36,7 +37,7 @@ STEP_LABELS = {
     "literature": "Search the literature",
 }
 PLAN = {
-    "audit": ["read", "prepare", "claim", "design", "balance", "checks", "estimate", "sensitivity", "verdict", "graph",
+    "audit": ["read", "model", "prepare", "claim", "design", "balance", "checks", "estimate", "sensitivity", "verdict", "graph",
               "summary"],
     "explore": ["read", "prepare", "explore", "graph", "summary"],
     "claim-only": ["literature"],
@@ -151,12 +152,37 @@ def _pipeline(a: dict, steps: Steps) -> tuple[dict, str]:
     if content is None:
         raise InputError("The uploaded file is no longer on the server. Upload it again.")
     raw = data.load_table(content, a["filename"] or "data.csv")
-    rep = pipeline.run(raw, claim_text=a["claim"], design_decl=p.get("design") or None, roles=p.get("roles") or {},
-                       confirm=p.get("confirm") or {}, online_literature=bool(p.get("online_literature")),
-                       progress=steps.start)
+    design_decl, roles = p.get("design") or None, p.get("roles") or {}
+    confirm = p.get("confirm") or {}
+    # When the user declared nothing, a model (if one is configured) reads the claim, picks the design, the roles and
+    # the columns to leave out, and judges. The pipeline below then computes the report under those choices.
+    audit = None
+    if a["mode"] == "audit" and (a["claim"] or "").strip() and not (design_decl or roles or confirm)             and model_audit.available():
+        steps.start("model")
+        audit = model_audit.run(raw, a["claim"])
+    rep = None
+    if model_audit.usable(audit):
+        m_design, m_roles = model_audit.declarations(audit, raw.columns)
+        try:
+            rep = pipeline.run(raw, claim_text=a["claim"], design_decl=m_design, roles=m_roles, confirm={},
+                               online_literature=bool(p.get("online_literature")), progress=steps.start)
+            if rep.needs_input:            # the pipeline could not follow the model's reading: run it the old way
+                rep = None
+        except InputError:
+            rep = None
+        if rep is None:
+            audit = dict(audit, status="error", error="The pipeline could not compute a report under the model's "
+                                                      "reading, so the rule-based analysis was used.")
+    if rep is None:
+        rep = pipeline.run(raw, claim_text=a["claim"], design_decl=design_decl, roles=roles, confirm=confirm,
+                           online_literature=bool(p.get("online_literature")), progress=steps.start)
     report = to_jsonable(rep)
+    if model_audit.usable(audit):
+        model_audit.check_against_report(audit, report)     # the verdict may not claim more than the interval shows
+        model_audit.apply_verdict(report, audit)
     result = {"mode": report["mode"], "report": report, "influence": None, "base_graph": None, "frame": None,
-              "summary": None, "column_stats": column_stats(raw), "claimed_effect": None}
+              "summary": None, "column_stats": column_stats(raw), "claimed_effect": None,
+              "model_audit": model_audit.public(audit) if audit else None}
     try:  # the claim's size in outcome units (drawn on the Treatment Effect forest plot)
         result["claimed_effect"] = to_jsonable(units.claimed_effect(rep.claim, rep.estimate))
     except Exception:  # noqa: BLE001

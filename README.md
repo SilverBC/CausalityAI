@@ -220,7 +220,17 @@ each through the whole pipeline.
   will still read "Partly supported … if no unmeasured confounding": the data cannot reveal it.
   The sensitivity card and the assumed panel are what make that visible.
 
-## Model-led audit (backend only, not yet in the web app)
+## Model-led audit in the web app
+
+When you upload data with a claim and declare no design or column roles, and `GEMINI_API_KEY` is set, Gemini
+audits the claim first: it analyses the table itself and may call the tools below. The report you see is then
+computed under its reading (treatment, outcome, design, role columns, columns left out), and its verdict
+replaces the rule-based one, after a check in code that it claims no more than the computed 95% interval shows.
+The result also carries `model_audit` (the reading, why, the tools it called and what they returned); the web
+app does not display that part yet. With no key, or if the model fails, the analysis is the rule-based one.
+`CAUSAL_MODEL_AUDIT=off` switches it off. See `backend/services/model_audit.py`.
+
+## Model-led audit: the parts
 
 A second way to audit a claim lives in `backend/causality/orchestrator/`. The model decides and
 judges; the code computes numbers and reports them without pass or fail labels. It is reachable from

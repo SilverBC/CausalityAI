@@ -233,7 +233,8 @@ def run(folder: str, instructions: str, context: str | None = None, helpers: boo
     t0 = time.time()
     model = model or gemini.model_name()
     out = {"status": "error", "error": None, "turns": 0, "requests": 0, "input_tokens": 0, "output_tokens": 0,
-           "seconds": 0.0, "python_runs": 0, "helper_calls": [], "model": model, "helpers_offered": bool(helpers)}
+           "seconds": 0.0, "python_runs": 0, "helper_calls": [], "model": model, "helpers_offered": bool(helpers),
+           "calls": []}                      # every action in order: {"tool", "args", "result"}
     offered = [{k: v for k, v in t.items() if k != "command"} for t in SOFTWARE_TOOLS] if helpers else []
     tools = [RUN_PYTHON] + offered + [WRITE_ANSWER]
     system = instructions.strip() + PROTOCOL + json.dumps(tools, indent=1)
@@ -290,6 +291,10 @@ def run(folder: str, instructions: str, context: str | None = None, helpers: boo
                     done = done or ok
                 else:
                     results.append(f"[{name}] There is no such tool.")
+            for c, res in zip(calls, results):
+                c_args, _problem = gemini._call_input(c)
+                out["calls"].append({"tool": str(c["name"]), "args": c_args,
+                                     "result": res.split("\n", 1)[-1][:4000]})
             log.append({"role": "user", "text": "\n\n".join(results)})
             if done:
                 out["status"] = "done"
