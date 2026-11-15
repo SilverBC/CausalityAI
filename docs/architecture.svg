@@ -1,0 +1,133 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 900" width="920" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M1 1 L9 5 L1 9" fill="none" stroke="#77756e" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <style>
+      .t{font-size:15px;font-weight:600}
+      .s{font-size:12px}
+      .lab{font-size:13px;fill:#5f5e5a}
+      .note{font-size:12px;fill:#5f5e5a;font-style:italic}
+      .ln{stroke:#77756e;stroke-width:1.5;fill:none}
+      .band{fill:none;stroke:#d3d1c7;stroke-width:1.2;stroke-dasharray:5 4}
+      .io rect{fill:#f1efe8;stroke:#b4b2a9}
+      .io .t{fill:#2c2c2a} .io .s{fill:#5f5e5a}
+      .ai rect{fill:#eeedfe;stroke:#9f97e0}
+      .ai .t{fill:#3c3489} .ai .s{fill:#534ab7}
+      .code rect{fill:#e1f5ee;stroke:#5dcaa5}
+      .code .t{fill:#085041} .code .s{fill:#0f6e56}
+      .hard rect{fill:#faece7;stroke:#e0886a}
+      .hard .t{fill:#712b13} .hard .s{fill:#993c1d}
+      rect{stroke-width:1.2}
+      text{text-anchor:middle}
+      .l{text-anchor:start} .r{text-anchor:end}
+    </style>
+  </defs>
+
+  <rect x="1" y="1" width="918" height="898" rx="14" fill="#ffffff" stroke="#e6e4dc"/>
+
+  <!-- user -->
+  <g class="io">
+    <rect x="260" y="28" width="400" height="58" rx="9"/>
+    <text class="t" x="460" y="53">You</text>
+    <text class="s" x="460" y="72">A table and one sentence: "X raises Y"</text>
+  </g>
+  <path class="ln" d="M460 90 V124" marker-end="url(#a)"/>
+
+  <!-- gemini band -->
+  <rect class="band" x="60" y="130" width="800" height="118" rx="12"/>
+  <text class="lab l" x="78" y="152">Gemini · investigates and judges, in whatever order it likes</text>
+  <g class="ai">
+    <rect x="88" y="166" width="175" height="62" rx="9"/>
+    <text class="t" x="175.500" y="192">Read the table</text>
+    <text class="s" x="175.500" y="211">Types, layout, oddities</text>
+    <rect x="278" y="166" width="175" height="62" rx="9"/>
+    <text class="t" x="365.500" y="192">Pick the design</text>
+    <text class="s" x="365.500" y="211">From the data itself</text>
+    <rect x="468" y="166" width="175" height="62" rx="9"/>
+    <text class="t" x="555.500" y="192">Run its own code</text>
+    <text class="s" x="555.500" y="211">Python, in a sandbox</text>
+    <rect x="658" y="166" width="175" height="62" rx="9"/>
+    <text class="t" x="745.500" y="192">Judge the claim</text>
+    <text class="s" x="745.500" y="211">Draft verdict + reasons</text>
+  </g>
+
+  <!-- reach arrows -->
+  <path class="ln" d="M390 252 V306" marker-end="url(#a)"/>
+  <path class="ln" d="M530 306 V252" marker-end="url(#a)"/>
+  <text class="note r" x="380" y="283">reaches for a tool when it helps</text>
+  <text class="note l" x="540" y="283">gets numbers back, never pass or fail</text>
+
+  <!-- tools band -->
+  <rect class="band" x="60" y="312" width="800" height="118" rx="12"/>
+  <text class="lab l" x="78" y="334">Bluff-or-Buff · the application the AI reaches for</text>
+  <g class="code">
+    <rect x="88" y="348" width="137" height="62" rx="9"/>
+    <text class="t" x="156.500" y="374">Layout facts</text>
+    <text class="s" x="156.500" y="393">Who, when, cutoffs</text>
+    <rect x="240" y="348" width="137" height="62" rx="9"/>
+    <text class="t" x="308.500" y="374">Design tests</text>
+    <text class="s" x="308.500" y="393">Pre-trends, first stage</text>
+    <rect x="392" y="348" width="137" height="62" rx="9"/>
+    <text class="t" x="460.500" y="374">Estimators</text>
+    <text class="s" x="460.500" y="393">Effect + 95% interval</text>
+    <rect x="544" y="348" width="137" height="62" rx="9"/>
+    <text class="t" x="612.500" y="374">General checks</text>
+    <text class="s" x="612.500" y="393">Balance, overlap</text>
+    <rect x="696" y="348" width="137" height="62" rx="9"/>
+    <text class="t" x="764.500" y="374">Sensitivity</text>
+    <text class="s" x="764.500" y="393">Hidden confounding</text>
+  </g>
+
+  <!-- reading goes down the right side -->
+  <path class="ln" d="M860 197 H888 V509 H664" marker-end="url(#a)"/>
+  <text class="note r" x="878" y="500">reading + draft verdict</text>
+
+  <!-- recompute -->
+  <g class="code">
+    <rect x="260" y="480" width="400" height="58" rx="9"/>
+    <text class="t" x="460" y="505">Recompute the report</text>
+    <text class="s" x="460" y="524">Fixed code, under the model's reading</text>
+  </g>
+  <path class="ln" d="M460 542 V566" marker-end="url(#a)"/>
+
+  <!-- floor -->
+  <g class="hard">
+    <rect x="260" y="572" width="400" height="58" rx="9"/>
+    <text class="t" x="460" y="597">Floor rule</text>
+    <text class="s" x="460" y="616">A verdict cannot claim more than the 95% interval shows</text>
+  </g>
+  <path class="ln" d="M460 634 V658" marker-end="url(#a)"/>
+
+  <!-- report -->
+  <g class="io">
+    <rect x="260" y="664" width="400" height="58" rx="9"/>
+    <text class="t" x="460" y="689">Report</text>
+    <text class="s" x="460" y="708">Verdict, checks, graphs, what is only assumed</text>
+  </g>
+
+  <!-- after the report -->
+  <path class="ln" d="M460 726 V746 M280 746 H640 M280 746 V768 M640 746 V768"/>
+  <path class="ln" d="M280 760 V768" marker-end="url(#a)"/>
+  <path class="ln" d="M640 760 V768" marker-end="url(#a)"/>
+  <g class="ai">
+    <rect x="120" y="774" width="320" height="58" rx="9"/>
+    <text class="t" x="280" y="799">Investigator chat</text>
+    <text class="s" x="280" y="818">Gemini answers from the report's real numbers</text>
+    <rect x="480" y="774" width="320" height="58" rx="9"/>
+    <text class="t" x="640" y="799">Literature search</text>
+    <text class="s" x="640" y="818">Google Search · dead links dropped · sources scored</text>
+  </g>
+
+  <!-- legend -->
+  <g class="s" fill="#5f5e5a">
+    <rect x="150" y="862" width="13" height="13" rx="3" fill="#eeedfe" stroke="#9f97e0"/>
+    <text class="l" x="170" y="873">Gemini</text>
+    <rect x="290" y="862" width="13" height="13" rx="3" fill="#e1f5ee" stroke="#5dcaa5"/>
+    <text class="l" x="310" y="873">Deterministic code</text>
+    <rect x="490" y="862" width="13" height="13" rx="3" fill="#faece7" stroke="#e0886a"/>
+    <text class="l" x="510" y="873">Hard constraint</text>
+    <rect x="660" y="862" width="13" height="13" rx="3" fill="#f1efe8" stroke="#b4b2a9"/>
+    <text class="l" x="680" y="873">Input or output</text>
+  </g>
+</svg>

@@ -45,33 +45,7 @@ Settings, limits and the module list are in [docs/REFERENCE.md](docs/REFERENCE.m
 
 <ins>**The application is the thing the AI reaches for, not the other way around.**</ins>
 
-```mermaid
-flowchart LR
-    U([You: a table + one claim]) --> G
-
-    subgraph APP[What our application offers]
-        direction TB
-        T1[layout_facts<br/>who is treated, when, cutoffs]
-        T2[design_tests<br/>pre-trends, first stage, density]
-        T3[estimate_effect<br/>effect + 95% interval]
-        T4[general_checks<br/>balance, overlap, missing, spillovers]
-        T5[sensitivity<br/>hidden confounding]
-        T6[run_python<br/>its own code, sandboxed]
-    end
-
-    G{{Gemini<br/>investigates and judges}}
-    G <-. reaches for, when useful .-> APP
-    G -- writes down --> A[Reading + draft verdict<br/>treatment, outcome, design, reasons]
-    A --> P[Code recomputes the full report<br/>under that reading]
-    P --> F{Floor check<br/>verdict vs 95% interval}
-    F -- claims too much --> I[Inconclusive, with the reason]
-    F -- holds --> R[Report: verdict, checks, graphs]
-    I --> R
-
-    R --> C[Investigator chat<br/>answers from the report]
-    R --> L[Literature search<br/>Google Search, dead links dropped,<br/>sources scored]
-    L --> R
-```
+<p align="center"><img src="docs/architecture.svg" alt="Gemini investigates and judges, reaching for the Bluff-or-Buff tools; code recomputes the report and enforces the floor rule; the Investigator chat and literature search follow." width="820"></p>
 
 - **Gemini is in the middle.** It reads the table, writes and runs its own analysis, and calls our tools when it
   thinks they help. Nothing forces an order or a tool.
