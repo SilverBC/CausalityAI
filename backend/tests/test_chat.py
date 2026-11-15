@@ -79,7 +79,7 @@ def test_failure_is_reported_and_nothing_is_stored(env, monkeypatch):
     from services import llm
     monkeypatch.setattr(llm, "run", lambda *a, **k: (llm._fail("You've hit your usage limit · resets 5pm"), None)[1])
     r = c.post(f"/api/chats/{chat['id']}/messages", json={"text": "Hello?"})
-    assert r.status_code == 503 and r.json()["detail"] == "Claude is unavailable: You've hit your usage limit · resets 5pm"
+    assert r.status_code == 503 and r.json()["detail"] == "The language model is unavailable: You've hit your usage limit · resets 5pm"
     assert c.get(f"/api/chats/{chat['id']}").json()["messages"] == []    # the user can simply send it again
     assert c.get(f"/api/chats/{chat['id']}").json()["title"] == "New chat"
 

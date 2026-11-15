@@ -4,6 +4,7 @@ import warnings
 warnings.filterwarnings("ignore")
 import os
 os.environ.setdefault("CAUSAL_MODEL_AUDIT", "off")   # no test may start a real model audit; tests of it inject a fake
+os.environ.setdefault("CAUSAL_LINK_CHECK", "off")   # no test may request a cited link; tests of it pass a fake check
 os.environ.setdefault("CAUSAL_LIMITS", "off")   # tests that exercise the demo limits turn them on themselves
 
 import pytest
@@ -15,5 +16,5 @@ def _no_real_model_keys(monkeypatch):
     (test_orch_gemini.py sets its own fake key on top of this.)"""
     from causality.orchestrator import gemini
     monkeypatch.setattr(gemini, "_env_loaded", True)
-    for k in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "GEMINI_MODEL", "GEMINI_HELPER_MODEL", "GEMINI_RPM"):
+    for k in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "GEMINI_MODEL", "GEMINI_WEB_MODEL", "GEMINI_HELPER_MODEL", "GEMINI_RPM"):
         monkeypatch.delenv(k, raising=False)

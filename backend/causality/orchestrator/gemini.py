@@ -9,6 +9,7 @@ current folder; real environment variables win):
 
     GEMINI_API_KEY        required (GOOGLE_API_KEY also works)
     GEMINI_MODEL          the orchestrator model, default gemini-3.5-flash-lite
+    GEMINI_WEB_MODEL      the model for calls that search the web, default gemini-2.5-flash-lite
     GEMINI_HELPER_MODEL   the model that writes helper scripts, default = GEMINI_MODEL
     GEMINI_RPM            requests per minute to stay under, per model, default 5 (the free tier is tight)
 
@@ -40,6 +41,7 @@ from types import SimpleNamespace
 from . import headless
 
 DEFAULT_MODEL = "gemini-3.5-flash-lite"
+DEFAULT_WEB_MODEL = "gemini-2.5-flash-lite"
 ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 MAX_TRIES = 5
 
@@ -122,6 +124,13 @@ def available() -> bool:
 def model_name() -> str:
     load_env()
     return (os.environ.get("GEMINI_MODEL") or "").strip() or DEFAULT_MODEL
+
+
+def web_model_name() -> str:
+    """The model for calls that search the web. Google's free tier has no search allowance on the Gemini 3 models,
+    so these calls default to a model that has one."""
+    load_env()
+    return (os.environ.get("GEMINI_WEB_MODEL") or "").strip() or DEFAULT_WEB_MODEL
 
 
 def helper_model_name() -> str:
@@ -207,6 +216,12 @@ def generate(model: str, body: dict, timeout: float = 300, transport=None, sleep
         if status == 429 and any("PerDay" in q for q in quotas):
             raise GeminiError(f"Today's free Gemini quota for {model} is used up. Try again tomorrow, set "
                               "GEMINI_MODEL to another model, or turn on billing for the key.")
+        searching = any(isinstance(t, dict) and "google_search" in t for t in body.get("tools") or [])
+        if status == 429 and searching and not quotas and retry is None:
+            # No quota id and no retry delay: the request was refused, not throttled. Google gives the free tier
+            # no search allowance on some models, so trying again cannot help.
+            raise GeminiError(f"Google Search is not available to this key on {model} (the free tier has no search "
+                              "allowance for it). Set GEMINI_WEB_MODEL to a model that has one, or turn on billing.")
         if status in (400, 401, 403, 404):
             hint = {400: "Gemini rejected the request", 401: "The Gemini API key was not accepted",
                     403: "The Gemini API key is not allowed to use this model",

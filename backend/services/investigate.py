@@ -18,7 +18,7 @@ import threading
 import time
 from typing import Optional
 
-from . import llm, store
+from . import links, llm, store
 from .reliability import score_factors
 
 MAX_RUNNING = 3
@@ -117,6 +117,8 @@ def search(analysis: dict, target: str, label: str, in_data: bool) -> dict:
                   kind="investigate")
     if not isinstance(out, dict):
         raise RuntimeError(f"The literature search failed: {llm.last_error() or 'no answer came back'}")
+    if llm.backend() != "fake":
+        links.drop_dead_sources([f for f in out.get("factors") or [] if isinstance(f, dict)])   # links that do not open
     T, Y = ctx["treatment"], ctx["outcome"]
     factors, edges, seen = [], [], set()
     for f in out.get("factors") or []:

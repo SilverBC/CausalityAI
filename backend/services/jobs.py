@@ -18,7 +18,7 @@ from causality import data, pipeline, units
 from causality.data import InputError
 from causality.schema import Roles, to_jsonable
 
-from . import graph, limits, llm, mailer, model_audit, store
+from . import graph, limits, links, llm, mailer, model_audit, store
 
 STEP_LABELS = {
     "read": "Read the file",
@@ -249,7 +249,7 @@ SUMMARY_SYSTEM = ("You write the executive summary of a causal analysis for a no
 
 
 def summarize(claim: str, report: dict) -> dict:
-    """Claude writes the summary when available; the template is the fallback, and the reason is kept."""
+    """The language model (Gemini when a key is set) writes the summary when available; the template is the fallback, and the reason is kept."""
     fallback = template_summary(report)
     if not llm.available():
         return {"text": fallback, "source": "template"}
@@ -307,6 +307,8 @@ def _claim_only(a: dict, steps: Steps) -> dict:
         schema=CLAIM_ONLY_SCHEMA, web=True, timeout=300, kind="claim_only")
     if not isinstance(out, dict):
         raise RuntimeError(f"the literature search failed: {llm.last_error() or 'no answer'}")
+    if llm.backend() != "fake":
+        links.drop_dead_sources([e for e in out.get("evidence", []) if isinstance(e, dict)])   # links that do not open
     out["evidence"] = [e for e in out.get("evidence", [])
                        if any(str(s.get("url", "")).startswith("http") for s in e.get("sources", []))]
     return {"mode": "claim-only", "report": None, "influence": None, "claim_only": out,

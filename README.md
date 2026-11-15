@@ -39,18 +39,20 @@ Open **http://localhost:8000**. Your analyses are kept in a Docker volume betwee
    **Investigate further →** opens the Investigation page, where Claude searches published research for causes the
    dataset could not contain (needs Claude, see below).
 
-### What needs Claude
+### What needs a language model
 
-The analysis never needs a language model. Without one (no Claude Code, no `ANTHROPIC_API_KEY`), every analysis,
-tab, chart and graph works, and the executive summary uses a template. These four features need Claude and say so
-when it is missing: the written executive summary, the Investigator chat, literature investigations of a variable,
-and checking a claim with no data. To turn them on with Docker:
+The analysis never needs a language model. Without one (no `GEMINI_API_KEY`), every analysis, tab, chart and graph
+works, and the executive summary uses a template. These four features need a model and say so when it is missing:
+the written executive summary, the Investigator chat, literature investigations of a variable, and checking a claim
+with no data. They run on Google Gemini (a free-tier key is enough): put `GEMINI_API_KEY=...` in `.env` (see
+`.env.example`), or with Docker:
 
 ```bash
-ANTHROPIC_API_KEY=sk-ant-... docker compose up --build
+GEMINI_API_KEY=... docker compose up --build
 ```
 
-The header shows which mode you are in ("Claude not connected", "Claude API connected", "Claude Code connected").
+The header badge still says "Claude ..." (the front end was not renamed); hover it, or see `GET /api/health`
+(`llm_backend`, `llm_label`), to see that Gemini is the one answering.
 
 ## Run
 
@@ -89,16 +91,19 @@ Settings come from environment variables or a `.env` file in the project root (g
 
 | Variable | Default | What it does |
 |---|---|---|
-| `CAUSAL_LLM` | `cli` if Claude Code is found, else `api` if `ANTHROPIC_API_KEY` is set, else `off` | Which language model backend: `cli`, `api`, `fake` (tests) or `off` |
-| `CLAUDE_BIN` | found on `PATH`, `~/.local/bin` or the VS Code / Cursor extension | Path to the Claude Code binary for `cli` |
-| `CAUSAL_CLAUDE_MODEL` | Claude Code's default | Model for `cli` |
-| `ANTHROPIC_API_KEY` | none | Key for `api` (or sign in with `ant auth login`) |
+| `CAUSAL_LLM` | `gemini` if a Gemini key is found, else `api` if `ANTHROPIC_API_KEY` is set, else `off` | Which language model backend for summary, chat, investigations and claim-only: `gemini`, `api`, `fake` (tests) or `off`. Headless Claude Code is no longer used here |
+| `GEMINI_API_KEY` (or `GOOGLE_API_KEY`) | none | Key for `gemini` (free tier works) |
+| `GEMINI_MODEL` | `gemini-3.5-flash-lite` | Model for `gemini` (also used by the model audit) |
+| `CAUSAL_LINK_CHECK` | on | `off` skips the check that drops cited sources whose links do not open (missing host, 404 or 410) |
+| `GEMINI_WEB_MODEL` | `gemini-2.5-flash-lite` | Model for web-search calls (investigations, claim-only checks). Google's free tier has no search allowance on Gemini 3 models |
+| `GEMINI_RPM` | `5` | Requests per minute per model; requests are spaced to stay under it |
+| `ANTHROPIC_API_KEY` | none | Optional key for `api` (or sign in with `ant auth login`); a Gemini key wins when both are set |
 | `CAUSAL_API_MODEL` | `claude-opus-5-5` | Model for `api` |
 | `CAUSAL_DATA_DIR` | `data/` | Where the database (`causal.db`) and per-analysis files (`blobs/`) live |
 | `RESEND_API_KEY`, `MAIL_FROM` | none | "Analysis ready" email through Resend. Without a verified domain Resend only delivers to the Resend account's own address |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | none | Email fallback over SMTP (e.g. Gmail with an app password) |
 
-The analysis itself never uses a language model. Claude writes the executive summary (with a plain template when
+The analysis itself never uses a language model. The model (Gemini by default) writes the executive summary (with a plain template when
 it is unavailable), runs the literature investigations and the Investigator chat, and handles claim-only mode (a
 claim with no data). `GET /api/health` shows
 which backend is active and its last error; `?probe=true` makes one tiny call to check that it works.
@@ -106,8 +111,8 @@ which backend is active and its last error; `?probe=true` makes one tiny call to
 ### Local only by default
 
 uvicorn listens on `127.0.0.1`, so only this computer can reach the app. `--host 0.0.0.0` makes it reachable by
-anyone on your network. With the `cli` backend every summary or literature search they trigger then runs on your
-own Claude subscription, so the demo limits below are on by default.
+anyone on your network. Every summary or literature search they trigger then spends your Gemini key's quota, so the
+demo limits below are on by default.
 
 ### Demo limits
 

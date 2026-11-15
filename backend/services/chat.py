@@ -3,7 +3,8 @@
 Each reply is one language-model call with a persona, a JSON digest of the analysis (≤ 24k characters), the last 12
 messages and the new one. Structured output: {reply, cards: [{kind, ref}], investigate: node id | null}. The server
 keeps only cards that point at something real, and when `investigate` names a real node it starts (or queues) that
-literature investigation and adds its card. When Claude fails, nothing is stored and the reason is returned: v1
+literature investigation and adds its card. The model is whatever services/llm.py picks (Gemini when a
+GEMINI_API_KEY is set). When the model fails, nothing is stored and the reason is returned: v1
 answered "Sorry…" and hid the cause, which made a usage-limit outage look like a bug.
 """
 from __future__ import annotations
@@ -145,8 +146,8 @@ def _node_info(a: dict, node: str) -> Optional[tuple[str, bool]]:
 def reply(a: dict, history: list[dict], text: str) -> dict:
     """{'reply', 'cards'} for the user's message. Raises ChatUnavailable with the reason when Claude can't answer."""
     if not llm.available():
-        raise ChatUnavailable("No language model is configured on this server (install Claude Code, set "
-                              "ANTHROPIC_API_KEY, or set CAUSAL_LLM).")
+        raise ChatUnavailable("No language model is configured on this server (set GEMINI_API_KEY in .env, "
+                              "or set CAUSAL_LLM).")
     out = llm.run(prompt(a, history, text), schema=SCHEMA, system=SYSTEM, timeout=150, kind="chat")
     if not isinstance(out, dict) or not str(out.get("reply") or "").strip():
         raise ChatUnavailable(llm.last_error() or "no answer came back")

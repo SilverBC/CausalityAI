@@ -1,57 +1,52 @@
 """One interface for every language-model call, with interchangeable backends.
 
     run(prompt, schema=None, web=False, system=None, timeout=180, kind=None) -> dict | str | None
-    available() -> bool        backend() -> "cli" | "api" | "fake" | "off"        last_error() -> str | None
+    available() -> bool        backend() -> "gemini" | "api" | "fake" | "off"        last_error() -> str | None
 
 CAUSAL_LLM selects the backend:
-    cli   headless Claude Code (`claude -p`) on the signed-in subscription: no API key, but it shares the developer's
-          usage limits. Binary from CLAUDE_BIN, PATH, ~/.local/bin or the VS Code / Cursor extension bundle.
-          CAUSAL_CLAUDE_MODEL picks the model.
-    api   Anthropic SDK (ANTHROPIC_API_KEY or an `ant auth login` profile). Needed for any public deploy.
-          CAUSAL_API_MODEL picks the model (default claude-opus-5-5).
-    fake  deterministic canned answers for tests: no network, no quota.
-    off   no language model; features that need one say so.
-Unset: `cli` when a Claude Code binary is found, else `api` when ANTHROPIC_API_KEY is set, else `off`.
+    gemini  Google's Gemini API (free tier works): GEMINI_API_KEY or GOOGLE_API_KEY, in the environment or in .env.
+            GEMINI_MODEL picks the model (default gemini-3.5-flash-lite), GEMINI_RPM paces requests per minute.
+            Uses causality/orchestrator/gemini.py; `web` turns on Google Search grounding.
+    api     Anthropic SDK (ANTHROPIC_API_KEY or an `ant auth login` profile). Kept as an optional fallback.
+            CAUSAL_API_MODEL picks the model (default claude-opus-5-5).
+    fake    deterministic canned answers for tests: no network, no quota.
+    off     no language model; features that need one say so.
+Unset (or any other value): `gemini` when a Gemini key is found, else `api` when ANTHROPIC_API_KEY is set, else `off`.
+Headless Claude Code is never started from here.
 
 The core analysis never calls a language model. Failures are never silent: run() returns None and last_error()
-keeps the reason, which the API reports (v1 hid a usage-limit outage behind "Sorry…").
+keeps the reason, which the API reports (v1 hid a usage-limit outage behind "Sorry…"). Error text never contains
+an API key: keys travel in request headers only, and messages are built from status text.
 """
 from __future__ import annotations
 
 import json
 import os
-import shutil
-import subprocess
-import tempfile
+import re
 import threading
 import time
-from pathlib import Path
 from typing import Any, Optional
+
+from causality.orchestrator import gemini
 
 _state: dict = {"error": None, "at": None}
 _lock = threading.Lock()
 
+# Gemini transport and sleep, replaceable by tests (a callable (url, body, key, timeout) -> (status, payload)).
+_gemini_transport = None
+_gemini_sleep = time.sleep
+
+NO_MODEL = "No language model is configured (set GEMINI_API_KEY in .env, or set CAUSAL_LLM)."
+
 
 # --------------------------------------------------------------------------------------------- selection
-def claude_bin() -> Optional[str]:
-    exe = "claude.exe" if os.name == "nt" else "claude"
-    bundled = sorted(
-        (p for ext in (".vscode", ".cursor") for p in
-         (Path.home() / ext / "extensions").glob(f"anthropic.claude-code-*/resources/native-binary/{exe}")),
-        key=lambda p: p.stat().st_mtime, reverse=True)
-    for c in [os.environ.get("CLAUDE_BIN"), shutil.which("claude"), str(Path.home() / ".local" / "bin" / exe),
-              *map(str, bundled)]:
-        if c and Path(c).exists():
-            return c
-    return None
-
-
 def backend() -> str:
+    gemini.load_env()   # so CAUSAL_LLM and the keys may also come from .env
     chosen = (os.environ.get("CAUSAL_LLM") or "").strip().lower()
-    if chosen in ("cli", "api", "fake", "off"):
+    if chosen in ("gemini", "api", "fake", "off"):
         return chosen
-    if claude_bin():
-        return "cli"
+    if gemini.available():
+        return "gemini"
     if os.environ.get("ANTHROPIC_API_KEY"):
         return "api"
     return "off"
@@ -59,8 +54,8 @@ def backend() -> str:
 
 def available() -> bool:
     b = backend()
-    if b == "cli":
-        return claude_bin() is not None
+    if b == "gemini":
+        return gemini.available()
     if b == "api":
         try:
             import anthropic  # noqa: F401
@@ -75,7 +70,7 @@ def api_model() -> str:
 
 
 def describe() -> str:
-    return {"cli": "Claude Code (headless claude -p)", "api": f"Anthropic API ({api_model()})",
+    return {"gemini": f"Google Gemini ({gemini.model_name()})", "api": f"Anthropic API ({api_model()})",
             "fake": "Fake language model (test mode)", "off": "No language model"}[backend()]
 
 
@@ -100,7 +95,7 @@ def run(prompt: str, schema: Optional[dict] = None, web: bool = False, system: O
     """Structured output (dict) when `schema` is given, else text. None on failure (see last_error()).
     `web` allows web search; `kind` only steers the fake backend."""
     if not available():
-        _fail("No language model is configured (install Claude Code, set ANTHROPIC_API_KEY, or set CAUSAL_LLM).")
+        _fail(NO_MODEL)
         return None
     from . import limits  # late: limits imports store, which must not import llm
     if not limits.spend_llm_call():
@@ -109,9 +104,9 @@ def run(prompt: str, schema: Optional[dict] = None, web: bool = False, system: O
     try:
         b = backend()
         out = _fake(prompt, schema, kind) if b == "fake" else \
-            _cli(prompt, schema, web, system, timeout) if b == "cli" else _api(prompt, schema, web, system, timeout)
-    except subprocess.TimeoutExpired:
-        _fail(f"Claude did not answer within {timeout} s.")
+            _gemini(prompt, schema, web, system, timeout) if b == "gemini" else _api(prompt, schema, web, system, timeout)
+    except gemini.GeminiError as e:
+        _fail(str(e))
         return None
     except Exception as e:  # noqa: BLE001
         _fail(f"{type(e).__name__}: {e}")
@@ -121,60 +116,93 @@ def run(prompt: str, schema: Optional[dict] = None, web: bool = False, system: O
     return out
 
 
-# --------------------------------------------------------------------------------------------- cli
-_DROP_ENV = {"CLAUDECODE", "CLAUDE_PID", "CLAUDE_EFFORT", "CLAUDE_AGENT_SDK_VERSION", "CLAUDE_AGENT_SDK_MCP_NO_PREFIX",
-             "CLAUDE_PREVIEW_CLASSIFIER_FLOOR", "ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN"}
+# --------------------------------------------------------------------------------------------- gemini
+def gemini_schema(schema: Any) -> Any:
+    """A JSON schema in Gemini's responseSchema dialect: upper-case types, ["x", "null"] -> nullable,
+    keys Gemini does not know (additionalProperties, ...) dropped."""
+    if isinstance(schema, list):
+        return [gemini_schema(x) for x in schema]
+    if not isinstance(schema, dict):
+        return schema
+    out: dict = {}
+    t = schema.get("type")
+    if isinstance(t, list):
+        rest = [x for x in t if x != "null"]
+        if "null" in t:
+            out["nullable"] = True
+        t = rest[0] if rest else "string"
+    if isinstance(t, str):
+        out["type"] = t.upper()
+    for k in ("description", "enum", "format"):
+        if k in schema:
+            out[k] = schema[k]
+    if isinstance(schema.get("properties"), dict):
+        out["properties"] = {k: gemini_schema(v) for k, v in schema["properties"].items()}
+        out["propertyOrdering"] = list(schema["properties"])
+    if "items" in schema:
+        out["items"] = gemini_schema(schema["items"])
+    if "required" in schema:
+        out["required"] = list(schema["required"])
+    return out
 
 
-def _clean_env() -> dict:
-    """Drop API keys and parent-session variables so the child CLI uses the logged-in subscription.
-    CAUSAL_KEEP_API_KEY=1 passes ANTHROPIC_API_KEY through instead."""
-    env = dict(os.environ)
-    for k in list(env):
-        if k.startswith("CLAUDE_CODE_") or k in _DROP_ENV:
-            env.pop(k)
-        elif k == "ANTHROPIC_API_KEY" and not env.get("CAUSAL_KEEP_API_KEY"):
-            env.pop(k)
-    return env
+def _json_from_text(text: str) -> Any:
+    """The JSON object in a reply, tolerating a code fence or stray text around it. None if there is none."""
+    s = text.strip()
+    m = re.match(r"^```[a-zA-Z]*\s*(.*?)\s*```$", s, re.S)
+    if m:
+        s = m.group(1)
+    try:
+        return json.loads(s)
+    except json.JSONDecodeError:
+        a, b = s.find("{"), s.rfind("}")
+        if 0 <= a < b:
+            try:
+                return json.loads(s[a:b + 1])
+            except json.JSONDecodeError:
+                return None
+    return None
 
 
-def _cli(prompt, schema, web, system, timeout):
-    tools = ["WebSearch", "WebFetch"] if web else []
-    cmd = [claude_bin(), "-p", prompt, "--output-format", "json", "--no-session-persistence", "--tools", ",".join(tools)]
-    if tools:
-        cmd += ["--allowedTools", ",".join(tools)]
-    if schema:
-        cmd += ["--json-schema", json.dumps(schema)]
-    if system:
-        cmd += ["--append-system-prompt", system]
-    if os.environ.get("CAUSAL_CLAUDE_MODEL"):
-        cmd += ["--model", os.environ["CAUSAL_CLAUDE_MODEL"]]
-    # run outside the project so no project CLAUDE.md or settings are picked up
-    proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout,
-                          cwd=tempfile.gettempdir(), stdin=subprocess.DEVNULL, env=_clean_env())
-    data: dict = {}
-    lines = proc.stdout.strip().splitlines()
-    if lines:
-        try:
-            data = json.loads(lines[-1])
-        except json.JSONDecodeError:
-            data = {}
-    if proc.returncode != 0 and not data:
-        _fail(f"Claude Code exited with {proc.returncode}: {(proc.stderr or proc.stdout)[-400:]}")
-        return None
-    if data.get("is_error"):
-        _fail(str(data.get("result"))[:400])
-        return None
+def _deadline_transport(timeout: float):
+    """The Gemini transport, bounded so retries cannot outlast `timeout` seconds in total."""
+    post = _gemini_transport or gemini._http_post
+    end = time.monotonic() + float(timeout)
+
+    def call(url, body, key, _per_call_timeout):
+        left = end - time.monotonic()
+        if left <= 1:
+            raise gemini.GeminiError(f"Gemini did not answer within {int(timeout)} s.")
+        return post(url, body, key, left)
+    return call
+
+
+def _gemini(prompt, schema, web, system, timeout):
+    sys_text = system or ""
+    gen: dict = {}
+    body: dict = {"contents": [{"role": "user", "parts": [{"text": prompt}]}]}
+    if web:
+        # Google Search grounding. JSON response mode is not combined with search (not every model accepts both),
+        # so the schema goes in the instructions and the JSON is read from the text.
+        body["tools"] = [{"google_search": {}}]
+        if schema:
+            sys_text += ("\n\nReply with only one JSON object (no code fence, no other text) that follows this JSON "
+                         "schema exactly, every required key present:\n" + json.dumps(schema))
+    elif schema:
+        gen = {"responseMimeType": "application/json", "responseSchema": gemini_schema(schema)}
+    if sys_text.strip():
+        body["systemInstruction"] = {"parts": [{"text": sys_text.strip()}]}
+    if gen:
+        body["generationConfig"] = gen
+    payload = gemini.generate(gemini.web_model_name() if web else gemini.model_name(), body, timeout=timeout, transport=_deadline_transport(timeout),
+                              sleep=_gemini_sleep)
+    text = gemini._text_of(payload)
     if not schema:
-        return data.get("result")
-    out = data.get("structured_output")
-    if out is None and data.get("result"):
-        try:
-            out = json.loads(data["result"])
-        except json.JSONDecodeError:
-            out = None
-    if out is None:
-        _fail("Claude Code returned no structured answer.")
+        return text.strip()
+    out = _json_from_text(text)
+    if not isinstance(out, dict):
+        _fail("Gemini's structured answer was not valid JSON.")
+        return None
     return out
 
 

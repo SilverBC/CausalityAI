@@ -192,7 +192,7 @@ async def analyze(request: Request, file: Optional[UploadFile] = File(None), cla
         _check_rows(request, _load(content, filename))  # fail fast on unreadable files, before creating a row
     mode = ("audit" if claim else "explore") if content else "claim-only"
     if mode == "claim-only" and not llm.available():
-        raise HTTPException(503, "A claim without data needs Claude for the literature search, and no language model "
+        raise HTTPException(503, "A claim without data needs a language model for the literature search, and none "
                                  "is configured. Upload a dataset to analyse the claim from data.")
     if mode == "claim-only":
         limits.require_budget()
@@ -284,7 +284,7 @@ class ChatMessage(BaseModel):
 
 @app.post("/api/chats/{chat_id}/messages")
 def send_message(chat_id: str, msg: ChatMessage, request: Request):
-    """The Investigator's reply (one Claude call). Both messages are stored only when it worked; otherwise 503 with
+    """The Investigator's reply (one language-model call, Gemini when a key is set). Both messages are stored only when it worked; otherwise 503 with
     the reason, and the user can send it again."""
     c, a = owned_chat(request, chat_id)
     if a["status"] != "done":
@@ -299,7 +299,7 @@ def send_message(chat_id: str, msg: ChatMessage, request: Request):
     try:
         return chat.send(c, a, text)
     except chat.ChatUnavailable as e:
-        raise HTTPException(503, f"Claude is unavailable: {e}")
+        raise HTTPException(503, f"The language model is unavailable: {e}")
 
 
 class Answers(BaseModel):
@@ -432,8 +432,8 @@ def _investigable(request: Request, job_id: str) -> dict:
     if a["status"] != "done" or not ((a["result"] or {}).get("influence") or {}).get("nodes"):
         raise HTTPException(409, "This analysis has no graph to investigate yet.")
     if not llm.available():
-        raise HTTPException(503, "Investigations search the literature with Claude, and no language model is "
-                                 "configured (install Claude Code, set ANTHROPIC_API_KEY, or set CAUSAL_LLM).")
+        raise HTTPException(503, "Investigations search the literature with a language model, and none is "
+                                 "configured (set GEMINI_API_KEY in .env, or set CAUSAL_LLM).")
     limits.require_budget()
     return a
 
