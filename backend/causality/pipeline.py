@@ -120,7 +120,8 @@ def _population_mask(prep: Prepared, filt: dict) -> pd.Series:
 
 # ------------------------------------------------------------------------------- run
 def run(raw: pd.DataFrame, claim_text: str = "", design_decl: Optional[str] = None,
-        roles: Optional[dict] = None, confirm: Optional[dict] = None, online_literature: bool = False) -> Report:
+        roles: Optional[dict] = None, confirm: Optional[dict] = None, online_literature: bool = False,
+        context: str = "") -> Report:
     claim_text = (claim_text or "").strip()
     confirm = {k: v for k, v in (confirm or {}).items() if v}
     hint: Optional[str] = None
@@ -137,6 +138,7 @@ def run(raw: pd.DataFrame, claim_text: str = "", design_decl: Optional[str] = No
         if claim is None:
             claim = Claim(raw=claim_text, testable=False, untestable_reason="the claim could not be read")
         report.claim = claim
+        _apply_context(claim, context, prep0)
         ok = _apply_claim_roles(report, claim, roles_obj, confirm, prep0)
         ok = _apply_claim_instrument(report, claim, roles_obj, confirm, prep0) and ok
         ok = _apply_randomization_hint(report, claim, roles_obj, confirm, design_decl) and ok
@@ -428,6 +430,29 @@ def _event_study_setup(report: Report, prep: Prepared, design: Design, ident: di
                                 "note": "Assumes treatment stays on after it starts, so a one-day effect is "
                                         "averaged over all later periods and looks much smaller."})
     return new
+
+
+def _apply_context(claim: Claim, context: str, prep0: Prepared) -> None:
+    """An optional description of the study/dataset. It is read ONLY for design wording and a
+    named instrument (the same rules as for the claim); it never sets treatment, outcome or
+    population, and the claim's own wording wins when both say something."""
+    context = (context or "").strip()
+    if not context:
+        return
+    try:
+        from .claim import parse_claim
+        ctx = parse_claim(context, prep0)
+    except Exception:  # noqa: BLE001
+        return
+    if claim.design_hint is None and ctx.design_hint:
+        claim.design_hint, claim.design_hint_phrase = ctx.design_hint, ctx.design_hint_phrase
+        claim.notes.append(f"Design hint taken from the description you gave ('{ctx.design_hint_phrase}').")
+    if not claim.instrument_phrase and ctx.instrument_phrase:
+        claim.instrument_phrase, claim.instrument_col = ctx.instrument_phrase, ctx.instrument_col
+        claim.instrument_score = ctx.instrument_score
+        if ctx.candidates.get("instrument"):
+            claim.candidates["instrument"] = ctx.candidates["instrument"]
+        claim.notes.append(f"Instrument taken from the description you gave ('{ctx.instrument_phrase}').")
 
 
 def _confirmed_population(prep: Prepared, col: str, filt: Optional[dict]) -> dict:
