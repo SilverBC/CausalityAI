@@ -233,6 +233,10 @@ pre.code { background: var(--code-bg); color: var(--code-ink); padding: 14px 16p
 .graph-canvas { position: relative; border-radius: 12px; overflow: hidden; min-width: 0;
   background: radial-gradient(circle at 50% 40%, color-mix(in srgb, var(--accent) 6%, transparent), transparent 70%), var(--panel2); }
 .graph-canvas canvas { display: block; }
+.graph-canvas canvas { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+.graph-canvas.over-node canvas { cursor: pointer; }
+.graph-canvas.dragging canvas { cursor: grabbing; }
+.graph-canvas.dragging .float-tooltip-kap, .graph-canvas.dragging .float-tooltip { display: none; }
 .graph-empty { display: grid; place-items: center; min-height: 140px; padding: 24px; text-align: center; color: var(--muted); font-size: .9rem; }
 .graph-foot { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
 .graph-foot p { margin: 0; }

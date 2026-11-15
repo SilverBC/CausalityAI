@@ -8,6 +8,15 @@ const CURVE = 0.08; // link curvature, shared by the library's lines and our arr
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
+/* Pointer gestures, handled here instead of by the library (its drag starts on press, and any mouse movement while
+   pressed cancels the click, so clicks on nodes were often lost or nudged the node):
+   - click: press and release within TOLERANCE_PX, however long it takes. Selects the node (or clears on background).
+   - hold to move: press a node and keep still for HOLD_MS; a ring fills while you hold, then the node follows the
+     pointer and stays pinned where it is dropped. Right-click unpins (library).
+   - moving before the hold completes pans the canvas (library zoom/pan). */
+const HOLD_MS = { mouse: 350, pen: 450, touch: 450 };
+const TOLERANCE_PX = 6;
+
 /** "839 citations · peer-reviewed journal" for a scored source. */
 export const sourceLine = (s) =>
   s.verified ? `${(s.citations ?? 0).toLocaleString()} citation${s.citations === 1 ? "" : "s"} · ${s.venue_kind}`
@@ -23,10 +32,25 @@ export default function GraphCanvas({
   const fgRef = useRef(null);
   const width = useWidth(wrapRef);
   const [hoverNode, setHoverNode] = useState(null);
+  const gesture = useRef(null);            // the pointer press in progress
+  const press = useRef(null);              // {id, t0, ms}: the hold ring being drawn
+  const [mode, setMode] = useState(null);  // null | "press" | "drag": continuous redraw and the cursor
   const fitted = useRef(false);
   const pulsing = !!pendingIds?.size && !reducedMotion();
+  const dataRef = useRef(data);
+  dataRef.current = data;
+  const onSelectRef = useRef(onSelect);
+  onSelectRef.current = onSelect;
 
-  const hover = hoverNode || (highlightId && data?.nodes.find((n) => n.id === highlightId)) || null;
+  // Hold-to-move only where nodes open details (Investigation page, phone graph); elsewhere the library's own
+  // immediate drag is enough.
+  const holdToMove = !!onSelect;
+  // while a node is held it stays the hovered one: the library's hover test lags a frame behind the moving node and
+  // would flip between it and nothing, dimming and undimming the whole graph (flashing)
+  const dragged = mode === "drag" ? gesture.current?.node || null : null;
+  const hover = dragged || hoverNode || (highlightId && data?.nodes.find((n) => n.id === highlightId)) || null;
+  const hoverRef = useRef(null);
+  hoverRef.current = hover;
   const active = (n) => !hover || hover.id === n.id || hover.neighbors.has(n.id);
   const linkActive = (l) => !hover || l.source.id === hover.id || l.target.id === hover.id;
 
@@ -52,6 +76,131 @@ export default function GraphCanvas({
     const t = setTimeout(() => fgRef.current?.zoomToFit(300, 30), 60);
     return () => clearTimeout(t);
   }, [height]);
+
+  // clicks and hold-to-move (see the comment at the top)
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el || !holdToMove) return;
+    const local = (ev) => {
+      const r = el.querySelector("canvas")?.getBoundingClientRect();
+      return r ? [ev.clientX - r.left, ev.clientY - r.top] : [0, 0];
+    };
+    const nodeAt = (ev) => {
+      const fg = fgRef.current;
+      if (!fg || !dataRef.current) return null;
+      const { x, y } = fg.screen2GraphCoords(...local(ev));
+      const slop = (ev.pointerType === "mouse" ? 3 : 10) / (fg.zoom() || 1); // fingers are less precise than a mouse
+      let best = null, bd = Infinity;
+      for (const n of dataRef.current.nodes) {
+        if (n.x == null) continue;
+        const d = Math.hypot(n.x - x, n.y - y);
+        if (d <= (n.r || 4) + 3 + slop && d < bd) { best = n; bd = d; }
+      }
+      return best;
+    };
+    const reset = () => {
+      const g = gesture.current;
+      if (g) clearTimeout(g.timer);
+      gesture.current = null;
+      press.current = null;
+      setMode(null);
+    };
+    const startDrag = (g) => {
+      if (gesture.current !== g || g.moved) return;
+      g.dragging = true;
+      g.wasPinned = g.node.fx != null;
+      g.node.fx = g.node.x;
+      g.node.fy = g.node.y;
+      g.lastHeat = performance.now();
+      press.current = null;
+      setMode("drag");
+      fgRef.current?.d3ReheatSimulation();
+      navigator.vibrate?.(8);
+    };
+    const down = (ev) => {
+      if (ev.button !== 0 || !ev.isPrimary) return;
+      reset();
+      const node = nodeAt(ev);
+      const g = { id: ev.pointerId, x0: ev.clientX, y0: ev.clientY, node, moved: false, dragging: false, dragMoved: false };
+      gesture.current = g;
+      if (node) {
+        const ms = HOLD_MS[ev.pointerType] ?? HOLD_MS.mouse;
+        press.current = { id: node.id, t0: performance.now(), ms };
+        g.timer = setTimeout(() => startDrag(g), ms);
+        setMode("press");
+      }
+    };
+    const move = (ev) => {
+      const g = gesture.current;
+      if (!g || ev.pointerId !== g.id) return;
+      const dist = Math.hypot(ev.clientX - g.x0, ev.clientY - g.y0);
+      if (g.dragging) {
+        if (dist > TOLERANCE_PX) g.dragMoved = true;
+        // keep the node on the canvas: dropped past an edge, it would be lost until the next zoom-to-fit
+        const r = el.getBoundingClientRect(), [px, py] = local(ev), m = 12;
+        const { x, y } = fgRef.current.screen2GraphCoords(Math.min(Math.max(px, m), r.width - m), Math.min(Math.max(py, m), r.height - m));
+        g.node.fx = g.node.x = x;
+        g.node.fy = g.node.y = y;
+        const now = performance.now();
+        if (now - g.lastHeat > 400) { g.lastHeat = now; fgRef.current?.d3ReheatSimulation(); } // neighbours follow
+      } else if (dist > TOLERANCE_PX && !g.moved) {
+        g.moved = true; // a pan, not a click or a hold
+        clearTimeout(g.timer);
+        press.current = null;
+        setMode(null);
+      }
+    };
+    const up = (ev) => {
+      const g = gesture.current;
+      if (!g || ev.pointerId !== g.id) return;
+      reset();
+      if (g.dragging && g.dragMoved) { fgRef.current?.d3ReheatSimulation(); return; } // pinned where it was dropped
+      if (g.dragging && !g.wasPinned) { g.node.fx = undefined; g.node.fy = undefined; } // a slow click: no pin
+      if (!g.moved) onSelectRef.current?.(g.node || null);
+    };
+    // while a node is held, the library's pan must not move the canvas as well (d3-zoom listens to mouse/touch
+    // events; these capture listeners on window run before it and swallow them)
+    const swallow = (ev) => {
+      if (!gesture.current?.dragging) return;
+      ev.stopImmediatePropagation();
+      if (ev.cancelable && ev.type === "touchmove") ev.preventDefault();
+    };
+    const noMenu = (ev) => { if (gesture.current && ev.pointerType !== "mouse") ev.preventDefault(); }; // long-press menu
+    el.addEventListener("pointerdown", down, true);
+    window.addEventListener("pointermove", move, true);
+    window.addEventListener("pointerup", up, true);
+    window.addEventListener("pointercancel", reset, true);
+    window.addEventListener("mousemove", swallow, true);
+    window.addEventListener("touchmove", swallow, { capture: true, passive: false });
+    el.addEventListener("contextmenu", noMenu);
+    return () => {
+      reset();
+      el.removeEventListener("pointerdown", down, true);
+      window.removeEventListener("pointermove", move, true);
+      window.removeEventListener("pointerup", up, true);
+      window.removeEventListener("pointercancel", reset, true);
+      window.removeEventListener("mousemove", swallow, true);
+      window.removeEventListener("touchmove", swallow, { capture: true });
+      el.removeEventListener("contextmenu", noMenu);
+    };
+  }, [holdToMove]);
+
+  // for tests and debugging: where a node is on screen, whether it is pinned, and which node is highlighted
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    el.__graph = {
+      screenOf: (id) => {
+        const n = dataRef.current?.nodes.find((x) => x.id === id);
+        const r = el.querySelector("canvas")?.getBoundingClientRect();
+        if (!n || n.x == null || !r || !fgRef.current) return null;
+        const p = fgRef.current.graph2ScreenCoords(n.x, n.y);
+        return { x: r.left + p.x, y: r.top + p.y, pinned: n.fx != null };
+      },
+      hoverId: () => hoverRef.current?.id ?? null,
+    };
+    return () => { delete el.__graph; };
+  }, []);
 
   // the canvas repaints only on interaction: repaint when colours, names or queue state change
   useEffect(() => { fgRef.current?.refresh?.(); }, [colors, names, pendingIds, queuedIds, selectedId]);
@@ -86,6 +235,20 @@ export default function GraphCanvas({
       ctx.strokeStyle = withAlpha(colors.hypo, 0.75);
       ctx.stroke();
       ctx.setLineDash([]);
+    }
+    const held = gesture.current?.dragging && gesture.current.node === n;
+    if (press.current?.id === n.id) { // holding: a ring fills up until the node can be moved
+      const p = Math.min(1, (performance.now() - press.current.t0) / press.current.ms);
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, n.r + 8, -Math.PI / 2, -Math.PI / 2 + 2 * Math.PI * p);
+      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = withAlpha(colors.ink, 0.65);
+      ctx.stroke();
+    }
+    if (held) { // lifted: a soft halo while it follows the pointer
+      circle(ctx, n, n.r + 9);
+      ctx.fillStyle = withAlpha(col, 0.18);
+      ctx.fill();
     }
     if (hover?.id === n.id || selectedId === n.id) {
       circle(ctx, n, n.r + 5);
@@ -195,7 +358,7 @@ export default function GraphCanvas({
     }
     if (n.depth != null) lines.push(n.depth === 0 ? "the outcome" : `${n.depth} step${n.depth === 1 ? "" : "s"} from the outcome`);
     if (n.found) lines.push("<i>found by the data search</i>");
-    if (onSelect) lines.push("<span>click for details</span>");
+    lines.push(`<span>${holdToMove ? "click for details · hold to move" : "drag to move"}</span>`);
     return `<div class="fg-tip">${lines.join("<br>")}</div>`;
   };
   const linkTooltip = (l) => {
@@ -210,7 +373,8 @@ export default function GraphCanvas({
 
   const ok = data && data.nodes.length > 0;
   return (
-    <div ref={wrapRef} className="graph-canvas" style={{ height: ok ? height : "auto" }}>
+    <div ref={wrapRef} className={`graph-canvas${mode === "drag" ? " dragging" : hoverNode ? " over-node" : ""}`}
+      style={{ height: ok ? height : "auto" }}>
       {ok && width > 0 ? (
         <ForceGraph2D
           ref={fgRef}
@@ -232,11 +396,10 @@ export default function GraphCanvas({
           linkDirectionalParticleWidth={(l) => Math.max(2, linkWidth(l) * 0.6)}
           linkDirectionalParticleColor={() => colors.ink}
           linkCurvature={CURVE}
-          autoPauseRedraw={!pulsing}
-          onNodeHover={(n) => setHoverNode(n || null)}
-          onNodeClick={onSelect ? (n) => onSelect(n) : undefined}
-          onBackgroundClick={onSelect ? () => onSelect(null) : undefined}
-          onNodeDragEnd={(n) => { n.fx = n.x; n.fy = n.y; }}
+          autoPauseRedraw={!pulsing && !mode}
+          enableNodeDrag={!holdToMove}
+          onNodeDragEnd={holdToMove ? undefined : (n) => { n.fx = n.x; n.fy = n.y; }}
+          onNodeHover={(n) => { if (!gesture.current?.dragging) setHoverNode(n || null); }}
           onNodeRightClick={(n) => { n.fx = undefined; n.fy = undefined; fgRef.current?.d3ReheatSimulation(); }}
           onEngineStop={() => { if (!fitted.current) { fitted.current = true; fgRef.current?.zoomToFit(400, 50); } }}
           cooldownTicks={150}

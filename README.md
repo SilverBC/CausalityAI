@@ -9,6 +9,49 @@ never show — no hidden confounders, the exclusion restriction, continuity at a
 interference between units, outcomes missing for reasons tied to the outcome — are always
 *assumed*, and *assumed* is never displayed as a pass.
 
+## Quick start
+
+**With Docker** (nothing else to install):
+
+```bash
+git clone https://github.com/SilverBC/CausalityAI.git && cd CausalityAI
+docker compose up --build            # first build takes a few minutes
+```
+
+Open **http://localhost:8000**. Your analyses are kept in a Docker volume between runs.
+
+**Without Docker** (Python 3.12 and Node 18+): see [Run](#run) below; it is four commands.
+
+### A two-minute tour
+
+1. Click the sample **"Real: LaLonde NSW experiment"**, then **Run analysis**. It is a 1970s randomized job-training
+   study whose true effect is known (about +$1,800 a year).
+2. **Overview**: the estimate (+$1,583, 95% CI 254 to 2,912), the verdict, the data-usability grade, and the
+   assumptions that could not be tested. These are listed separately and never counted as passes.
+3. **Data Usability Report**: each check (balance, overlap, hidden confounding, missing outcomes, spillovers) with
+   its status and chart.
+4. **Causal DAG**, **Treatment Effect**, **Future Design** (what study would settle it), **Python Code** (the
+   analysis step by step, runnable outside the app).
+5. Try **"Real: LaLonde vs PSID"**: the same trainees against a survey comparison group, the classic case where a
+   naive comparison gets the sign wrong (−$2,409). The grade drops to D and the verdict to Inconclusive: the app
+   will not confirm a claim this data cannot support.
+6. The **influence graph** above the results shows how strongly each variable pushes on the others.
+   **Investigate further →** opens the Investigation page, where Claude searches published research for causes the
+   dataset could not contain (needs Claude, see below).
+
+### What needs Claude
+
+The analysis never needs a language model. Without one (no Claude Code, no `ANTHROPIC_API_KEY`), every analysis,
+tab, chart and graph works, and the executive summary uses a template. These four features need Claude and say so
+when it is missing: the written executive summary, the Investigator chat, literature investigations of a variable,
+and checking a claim with no data. To turn them on with Docker:
+
+```bash
+ANTHROPIC_API_KEY=sk-ant-... docker compose up --build
+```
+
+The header shows which mode you are in ("Claude not connected", "Claude API connected", "Claude Code connected").
+
 ## Run
 
 Python 3.12 is recommended (some scientific packages have no wheels for newer versions yet).

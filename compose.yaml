@@ -1,0 +1,22 @@
+# Run the whole app on your own machine:
+#   docker compose up --build          then open http://localhost:8000
+# Optional: Claude features (executive summary, chat, literature investigations, claim-only searches) need an
+# Anthropic API key:   ANTHROPIC_API_KEY=sk-ant-... docker compose up --build
+# Without one, every analysis still runs; summaries use a template.
+services:
+  app:
+    build: .
+    image: causal-audit
+    ports:
+      - "8000:8000"
+    environment:
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # Your own machine: the demo rate limits are for a shared server, so they are off here.
+      # Set to "on" when this container serves other people (see README, "Demo limits").
+      CAUSAL_LIMITS: ${CAUSAL_LIMITS:-off}
+    volumes:
+      - causal-data:/data            # analyses, accounts and chats survive restarts
+    restart: unless-stopped
+
+volumes:
+  causal-data:
