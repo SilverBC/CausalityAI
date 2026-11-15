@@ -93,6 +93,22 @@ def test_hold_then_drag_moves_and_pins_the_node_and_right_click_unpins(graph):
     assert page.errors == [], page.errors
 
 
+def test_a_pinned_node_shows_a_pin_and_clicking_the_pin_releases_it(graph):
+    page, _ = graph
+    start = pos(page)
+    press(page, start, hold_ms=500, path=[(-12 * i, 6 * i) for i in range(1, 9)], step_ms=30)
+    p = pos(page)
+    assert p["pinned"] and p["pin"]["x"] > p["x"] and p["pin"]["y"] < p["y"]    # upper right of the node
+    page.mouse.move(p["x"] - 150, p["y"] + 150)                # no tooltip over it
+    page.wait_for_timeout(250)
+    page.screenshot(path=str(ROOT / "frontend" / "e2e" / "screens" / "graph-pinned.png"),
+                    clip={"x": p["x"] - 60, "y": p["y"] - 60, "width": 200, "height": 160})
+    press(page, p["pin"])                                      # a click on the pin
+    assert not pos(page)["pinned"]
+    assert selected(page) == ""                                # releasing is not opening
+    assert page.errors == [], page.errors
+
+
 def test_dragging_does_not_flash_the_graph(graph):
     page, _ = graph
     # the highlighted node dims everything else; it must stay the dragged node, frame after frame

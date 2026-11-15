@@ -5,6 +5,7 @@ server on a spare port with a throwaway data dir and the fake language model. Fr
     python -m pytest frontend/e2e -q
 Screenshots land in frontend/e2e/screens/ (gitignored) for a visual check.
 """
+import re
 from pathlib import Path
 
 import pytest
@@ -136,4 +137,21 @@ def test_theme_toggle_circle_reveal_and_persistence(browser, base_url):
     page.reload()  # the pick is stored and applied before the first paint
     assert page.evaluate("document.documentElement.dataset.theme") == "dark"
     page.get_by_role("button", name="Switch to light mode").wait_for()
+    assert page.errors == [], page.errors
+
+
+def test_sidebar_grade_stays_visible_after_clicking_the_item(browser, base_url):
+    page = new_page(browser, 1440)
+    job = run_lalonde(page, base_url)
+    item = page.locator(f".side-item[href='#/?job={job}']")
+    grade = item.locator(".side-grade")
+    grade.wait_for()
+    item.click()
+    page.mouse.move(700, 600)                                  # away from the sidebar: no hover
+    page.wait_for_timeout(200)
+    assert page.evaluate("document.activeElement.classList.contains('side-item')")      # the link kept focus
+    assert grade.evaluate("e => getComputedStyle(e).visibility") == "visible"
+    page.locator(f".side-item[href='#/?job={job}']").hover()
+    assert grade.evaluate("e => getComputedStyle(e).visibility") == "hidden"          # the trash takes its place
+    assert page.get_by_role("button", name=re.compile("^Delete ")).first.is_visible()
     assert page.errors == [], page.errors

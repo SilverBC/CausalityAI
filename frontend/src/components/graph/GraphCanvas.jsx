@@ -16,6 +16,8 @@ const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)"
    - moving before the hold completes pans the canvas (library zoom/pan). */
 const HOLD_MS = { mouse: 350, pen: 450, touch: 450 };
 const TOLERANCE_PX = 6;
+const PIN_PX = 17;                                                // the pin badge's size on screen
+const pinOffset = (n, scale) => (n.r || 4) * 0.72 + (PIN_PX / scale) * 0.15;  // from the centre, up and right
 
 /** "839 citations · peer-reviewed journal" for a scored source. */
 export const sourceLine = (s) =>
@@ -98,6 +100,17 @@ export default function GraphCanvas({
       }
       return best;
     };
+    // the pin badge of a pinned node under the pointer (clicking it releases the node; phones have no right-click)
+    const pinAt = (ev) => {
+      const fg = fgRef.current;
+      if (!fg || !dataRef.current) return null;
+      const [px, py] = local(ev), k = fg.zoom() || 1, hit = PIN_PX * 0.62 + (ev.pointerType === "mouse" ? 2 : 8);
+      return dataRef.current.nodes.find((n) => {
+        if (n.fx == null || n.x == null) return false;
+        const off = pinOffset(n, k), p = fg.graph2ScreenCoords(n.x + off, n.y - off);
+        return Math.hypot(p.x - px, p.y - py) <= hit;
+      }) || null;
+    };
     const reset = () => {
       const g = gesture.current;
       if (g) clearTimeout(g.timer);
@@ -120,8 +133,9 @@ export default function GraphCanvas({
     const down = (ev) => {
       if (ev.button !== 0 || !ev.isPrimary) return;
       reset();
-      const node = nodeAt(ev);
-      const g = { id: ev.pointerId, x0: ev.clientX, y0: ev.clientY, node, moved: false, dragging: false, dragMoved: false };
+      const pin = pinAt(ev);
+      const node = pin ? null : nodeAt(ev);   // on a pin badge: a click releases, no hold
+      const g = { id: ev.pointerId, x0: ev.clientX, y0: ev.clientY, node, pin, moved: false, dragging: false, dragMoved: false };
       gesture.current = g;
       if (node) {
         const ms = HOLD_MS[ev.pointerType] ?? HOLD_MS.mouse;
@@ -156,6 +170,12 @@ export default function GraphCanvas({
       reset();
       if (g.dragging && g.dragMoved) { fgRef.current?.d3ReheatSimulation(); return; } // pinned where it was dropped
       if (g.dragging && !g.wasPinned) { g.node.fx = undefined; g.node.fy = undefined; } // a slow click: no pin
+      if (g.pin && !g.moved) { // released: back into the layout
+        g.pin.fx = undefined;
+        g.pin.fy = undefined;
+        fgRef.current?.d3ReheatSimulation();
+        return;
+      }
       if (!g.moved) onSelectRef.current?.(g.node || null);
     };
     // while a node is held, the library's pan must not move the canvas as well (d3-zoom listens to mouse/touch
@@ -194,8 +214,13 @@ export default function GraphCanvas({
         const n = dataRef.current?.nodes.find((x) => x.id === id);
         const r = el.querySelector("canvas")?.getBoundingClientRect();
         if (!n || n.x == null || !r || !fgRef.current) return null;
-        const p = fgRef.current.graph2ScreenCoords(n.x, n.y);
-        return { x: r.left + p.x, y: r.top + p.y, pinned: n.fx != null };
+        const fg = fgRef.current, p = fg.graph2ScreenCoords(n.x, n.y);
+        const out = { x: r.left + p.x, y: r.top + p.y, pinned: n.fx != null };
+        if (out.pinned) {
+          const off = pinOffset(n, fg.zoom() || 1), q = fg.graph2ScreenCoords(n.x + off, n.y - off);
+          out.pin = { x: r.left + q.x, y: r.top + q.y };
+        }
+        return out;
       },
       hoverId: () => hoverRef.current?.id ?? null,
     };
@@ -288,6 +313,8 @@ export default function GraphCanvas({
       ctx.stroke();
     }
 
+    if (n.fx != null && n.fy != null) pinBadge(ctx, n, scale);
+
     // labels fade in with zoom; always shown for key nodes and the hovered neighbourhood
     const key = n.role === "treatment" || n.role === "outcome" || n.found || n.literature || selectedId === n.id;
     if (hover ? active(n) : data.nodes.length <= 25 || scale > 0.9 || key) {
@@ -299,6 +326,41 @@ export default function GraphCanvas({
       ctx.fillText(nameOf(n), n.x, n.y + n.r + 3);
     }
     ctx.globalAlpha = 1;
+  }
+
+  /** A small push pin on the node's upper right: it stays where it was dropped (right-click releases it). Constant
+      size on screen, whatever the zoom. */
+  function pinBadge(ctx, n, scale) {
+    const s = PIN_PX / scale;
+    const off = pinOffset(n, scale);
+    ctx.save();
+    ctx.translate(n.x + off, n.y - off);
+    ctx.beginPath();
+    ctx.arc(0, 0, s * 0.62, 0, 2 * Math.PI);
+    ctx.fillStyle = colors.panel;
+    ctx.fill();
+    ctx.lineWidth = Math.max(0.8 / scale, s * 0.07);
+    ctx.strokeStyle = withAlpha(colors.ink, 0.35);
+    ctx.stroke();
+    ctx.rotate(Math.PI / 5);                                 // the classic tilt
+    ctx.beginPath();                                         // head, collar and body
+    ctx.moveTo(-0.15 * s, -0.4 * s);
+    ctx.lineTo(0.15 * s, -0.4 * s);
+    ctx.lineTo(0.11 * s, -0.1 * s);
+    ctx.lineTo(0.24 * s, 0.0 * s);
+    ctx.lineTo(-0.24 * s, 0.0 * s);
+    ctx.lineTo(-0.11 * s, -0.1 * s);
+    ctx.closePath();
+    ctx.fillStyle = colors.ink;
+    ctx.fill();
+    ctx.beginPath();                                         // needle
+    ctx.moveTo(0, 0);
+    ctx.lineTo(0, 0.38 * s);
+    ctx.lineWidth = s * 0.09;
+    ctx.lineCap = "round";
+    ctx.strokeStyle = colors.ink;
+    ctx.stroke();
+    ctx.restore();
   }
 
   function paintHitArea(n, color, ctx) {
@@ -356,6 +418,7 @@ export default function GraphCanvas({
       if (n.total_effect_on_outcome != null) lines.push(`total effect on the outcome ${fmt(n.total_effect_on_outcome)} SD`);
       if (n.suggested) lines.push("<i>also suggested by the literature</i>");
     }
+    if (n.fx != null) lines.push(`<b>pinned</b> · ${holdToMove ? "click the pin or right-click" : "right-click"} to release`);
     if (n.depth != null) lines.push(n.depth === 0 ? "the outcome" : `${n.depth} step${n.depth === 1 ? "" : "s"} from the outcome`);
     if (n.found) lines.push("<i>found by the data search</i>");
     lines.push(`<span>${holdToMove ? "click for details · hold to move" : "drag to move"}</span>`);

@@ -491,7 +491,9 @@ html.theme-fade, html.theme-fade *, html.theme-fade *::before, html.theme-fade *
 .side-list > li { position: relative; }
 .side-del { position: absolute; top: 4px; right: 4px; opacity: 0; }
 .side-list > li:hover .side-del, .side-del:focus-visible { opacity: 1; }
-.side-list > li:hover .side-grade, .side-list > li:focus-within .side-grade { visibility: hidden; }
+/* only when the trash is actually shown: on hover, or when the trash itself has keyboard focus (focusing the link by
+   clicking it must not hide the grade) */
+.side-list > li:hover .side-grade, .side-list > li:has(.side-del:focus-visible) .side-grade { visibility: hidden; }
 .side-invs li { display: flex; align-items: center; }
 .side-invs li a { flex: 1; min-width: 0; }
 .side-invs .row-del { width: 24px; height: 24px; opacity: 0; }
