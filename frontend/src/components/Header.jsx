@@ -26,7 +26,7 @@ export default function Header({ health, route, graphJobId, sideOpen, onToggleSi
           aria-label={sideOpen ? "Hide your analyses" : "Show your analyses"} title={sideOpen ? "Hide sidebar" : "Your analyses"}>
           <SidebarIcon />
         </button>
-        <a className="brand" href="#/" aria-label="Causal Audit, new analysis"><Logo /><span>Causal Audit</span></a>
+        <a className="brand" href="#/" aria-label="Bluff-or-Buff, new analysis"><Logo /><span>Bluff-or-Buff</span></a>
         <nav className="nav-links" aria-label="Pages">
           <a href={route.page === "investigate" && route.jobId ? `#/?job=${route.jobId}` : "#/"}
             aria-current={route.page === "analysis" ? "page" : undefined}>Analysis</a>

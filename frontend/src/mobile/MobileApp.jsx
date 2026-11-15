@@ -58,7 +58,7 @@ function Home() {
   return (
     <div className="m-screen">
       <MobileBar>
-        <div className="m-brand"><Logo size={22} /><span>Causal Audit</span></div>
+        <div className="m-brand"><Logo size={22} /><span>Bluff-or-Buff</span></div>
         <ThemeToggle />
         <AccountButton />
         <a className="icon-btn m-icon" href="#/" title="Desktop version" aria-label="Open the desktop version">⧉</a>

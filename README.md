@@ -1,7 +1,9 @@
-# CausalityAI
+# Bluff-or-Buff
+
+*Is that causal claim a bluff, or is it buff, with the data to back it up?*
 
 Upload a table and, optionally, a sentence like *"X increases Y by 15% among Z"*.
-With a sentence, CausalityAI **audits** it. Without one, it **explores** what may cause what.
+With a sentence, Bluff-or-Buff **audits** it. Without one, it **explores** what may cause what.
 
 The one rule: **never claim more than the data can show.** Every assumption gets one of four
 statuses — *tested: OK*, *tested: concern*, *failed*, or *assumed (not tested)*. Things data can

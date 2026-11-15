@@ -17,7 +17,7 @@ const safeScript = (s) => String(s).replace(/<\/(script)/gi, "<\\/$1").replace(/
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
 export function downloadJSON(result, title) {
-  download(`causal-audit-${slug(title)}-${stamp()}.json`, JSON.stringify(result, null, 2), "application/json");
+  download(`bluff-or-buff-${slug(title)}-${stamp()}.json`, JSON.stringify(result, null, 2), "application/json");
 }
 
 export function buildHTML(report, title) {
@@ -32,7 +32,7 @@ export function buildHTML(report, title) {
     "}catch(e){out.textContent='This report could not be shown: '+e.message;}})();\n";
   return "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n" +
     "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n" +
-    `<title>${esc(`Causal Audit report: ${title || "analysis"}`)}</title>\n` +
+    `<title>${esc(`Bluff-or-Buff report: ${title || "analysis"}`)}</title>\n` +
     `<style>\n${standaloneCss.replace(/<\/style/gi, "<\\/style")}\n</style>\n</head>\n<body>\n` +
     `<header class="site-head"><div class="wrap"><h1 class="brand">Causal <span>Audit</span></h1>` +
     `<p class="tagline">${esc(title || "")} · exported ${esc(new Date().toLocaleString())}</p></div></header>\n` +
@@ -42,5 +42,5 @@ export function buildHTML(report, title) {
 }
 
 export function downloadHTML(report, title) {
-  download(`causal-audit-${slug(title)}-${stamp()}.html`, buildHTML(report, title), "text/html");
+  download(`bluff-or-buff-${slug(title)}-${stamp()}.html`, buildHTML(report, title), "text/html");
 }
