@@ -159,6 +159,9 @@ def main(argv=None, client=None) -> int:
                    help="a follow-up question asked after the verdict (repeat for several)")
     p.add_argument("--headless", action="store_true",
                    help="run the model through headless Claude Code (no API key needed)")
+    p.add_argument("--gemini", action="store_true",
+                   help="run the model on Google's Gemini API (GEMINI_API_KEY in the environment or .env); "
+                        "this is also the default whenever that key is set and --headless is not given")
     p.add_argument("--json-out", metavar="FILE", help="write the full report as JSON to FILE")
     p.add_argument("--full", action="store_true", help="print the whole report as JSON")
     a = p.parse_args(argv)
@@ -183,9 +186,16 @@ def main(argv=None, client=None) -> int:
         return 2
 
     from causality.orchestrator import loop
+    from causality.orchestrator import contract, gemini
+    model = contract.MODEL
     if client is None and a.headless:
         from causality.orchestrator import headless
         client = headless.HeadlessClient()
+    elif client is None and (a.gemini or gemini.available()):
+        if not gemini.available():
+            print("Cannot run: no Gemini API key was found. Put GEMINI_API_KEY=<your key> in the .env file.")
+            return 2
+        client, model = gemini.GeminiClient(), gemini.model_name()
     auto_rounds = {"n": 0}
 
     def settle(report):
@@ -208,7 +218,7 @@ def main(argv=None, client=None) -> int:
         return report
 
     try:
-        report = settle(loop.run_audit(df, a.claim, context, client=client))
+        report = settle(loop.run_audit(df, a.claim, context, client=client, model=model))
         for question in a.followup:
             if report.get("status") != "done":
                 break

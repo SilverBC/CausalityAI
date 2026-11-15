@@ -338,7 +338,9 @@ def run(df, args, writer=None, model: str = "claude-haiku-5-5", timeout: float =
         for i, q in enumerate(qs):
             q = q if isinstance(q, dict) else {"question": str(q)}
             items.append((str(q.get("id") or f"q{i + 1}"), str(q.get("question") or "").strip()))
-        writer = writer or HeadlessWriter(model=model)
+        if writer is None:
+            from . import gemini
+            writer = gemini.GeminiWriter() if gemini.available() else HeadlessWriter(model=model)
         df_csv = df.to_csv(index=False)
 
         def task(i_item):

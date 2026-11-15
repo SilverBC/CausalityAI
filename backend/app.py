@@ -121,10 +121,21 @@ def _audit_client():
     injected = getattr(app.state, "audit_client", None)
     if injected is not None:
         return injected
+    from causality.orchestrator import gemini
+    if gemini.available():                     # GEMINI_API_KEY in the environment or in .env
+        return gemini.GeminiClient()
     if os.environ.get("ANTHROPIC_API_KEY"):
         return None
     from causality.orchestrator import headless
     return headless.HeadlessClient()
+
+
+def _audit_model() -> str:
+    """The model name shown in the report: Gemini's when it is the one answering."""
+    from causality.orchestrator import contract, gemini
+    if getattr(app.state, "audit_client", None) is None and gemini.available():
+        return gemini.model_name()
+    return contract.MODEL
 
 
 def _audit_store(session_id: str, entry: dict) -> None:
@@ -179,7 +190,8 @@ async def audit(file: UploadFile = File(...), claim: str = Form(""), context: st
         return _error("Write the claim you want to audit, for example 'X increases Y'.")
     try:
         from causality.orchestrator import loop
-        report = await run_in_threadpool(loop.run_audit, df, claim, context or "", client=_audit_client())
+        report = await run_in_threadpool(loop.run_audit, df, claim, context or "", client=_audit_client(),
+                                         model=_audit_model())
     except Exception as e:  # noqa: BLE001
         return _audit_failed(e)
     session_id = uuid.uuid4().hex
