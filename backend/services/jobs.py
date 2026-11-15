@@ -14,7 +14,7 @@ import time
 import traceback
 from typing import Optional
 
-from causality import data, pipeline
+from causality import data, pipeline, units
 from causality.data import InputError
 from causality.schema import Roles, to_jsonable
 
@@ -139,11 +139,16 @@ def _pipeline(a: dict, steps: Steps) -> tuple[dict, str]:
     if content is None:
         raise InputError("The uploaded file is no longer on the server. Upload it again.")
     raw = data.load_table(content, a["filename"] or "data.csv")
-    report = to_jsonable(pipeline.run(raw, claim_text=a["claim"], design_decl=p.get("design") or None,
-                                      roles=p.get("roles") or {}, confirm=p.get("confirm") or {},
-                                      online_literature=bool(p.get("online_literature")), progress=steps.start))
+    rep = pipeline.run(raw, claim_text=a["claim"], design_decl=p.get("design") or None, roles=p.get("roles") or {},
+                       confirm=p.get("confirm") or {}, online_literature=bool(p.get("online_literature")),
+                       progress=steps.start)
+    report = to_jsonable(rep)
     result = {"mode": report["mode"], "report": report, "influence": None, "base_graph": None, "frame": None,
-              "summary": None}
+              "summary": None, "column_stats": column_stats(raw), "claimed_effect": None}
+    try:  # the claim's size in outcome units (drawn on the Treatment Effect forest plot)
+        result["claimed_effect"] = to_jsonable(units.claimed_effect(rep.claim, rep.estimate))
+    except Exception:  # noqa: BLE001
+        pass
     if report.get("needs_input"):
         return result, "needs_input"
 
@@ -165,6 +170,21 @@ def _pipeline(a: dict, steps: Steps) -> tuple[dict, str]:
     steps.start("summary")
     result["summary"] = summarize(a["claim"], report)
     return result, "done"
+
+
+def column_stats(raw) -> dict:
+    """Per original column: % missing, and the mean of numeric columns (for the Data tab)."""
+    import pandas as pd
+    out = {}
+    n = max(1, len(raw))
+    for c in raw.columns:
+        col = raw[c]
+        mean = None
+        if pd.api.types.is_numeric_dtype(col) and not pd.api.types.is_bool_dtype(col):
+            m = col.mean()
+            mean = float(m) if pd.notna(m) else None
+        out[str(c)] = {"pct_missing": round(100 * float(col.isna().sum()) / n, 2), "mean": mean}
+    return out
 
 
 def template_summary(report: dict) -> str:

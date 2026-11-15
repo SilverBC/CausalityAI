@@ -138,6 +138,9 @@ export default function App() {
     go("#/");
   }
 
+  // remember when this browser tab watched the job run, so the finished results scroll into view (§2.3)
+  const sawRunning = useRef(null);
+  if (job?.status === "running") sawRunning.current = job.id;
   const running = submitting || job?.status === "running";
   const graphJobId = route.page === "investigate" ? route.jobId
     : job?.status === "done" && job.result?.influence?.nodes?.length ? job.id : null;
@@ -162,7 +165,7 @@ export default function App() {
         {result && <GuestNudge text="You're using guest mode, so this analysis is saved only in this browser." />}
         {job && job.mode !== "claim-only" && <InfluenceGraph result={result} running={job.status === "running"} jobId={job.id} />}
         <div>
-          {result ? <Results result={result} job={job} /> : job?.status === "running" ? <Progress job={job} title="Running the analysis" /> : null}
+          {result ? <Results result={result} job={job} autoScroll={sawRunning.current === job.id} runKey={`${job.id}|${JSON.stringify(job.steps)}`} /> : job?.status === "running" ? <Progress job={job} title="Running the analysis" /> : null}
         </div>
       </>
     );

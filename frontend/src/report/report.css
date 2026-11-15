@@ -117,7 +117,7 @@
 
 /* assumed panel: amber / neutral, never green, never a check mark */
 .rh .assumed-panel { background: var(--amber-panel); border: 2px dashed var(--amber-panel-bd); }
-.rh .assumed-panel h2 { font-size: 20px; display: flex; align-items: center; gap: 10px; }
+.rh .assumed-panel h3 { font-size: 20px; display: flex; align-items: center; gap: 10px; }
 .rh .q-icon { display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; border: 2px dashed var(--amber-panel-bd); font-weight: 800; color: var(--concern); flex: 0 0 auto; }
 .rh .assumed-lead { color: var(--fg); }
 .rh .assumed-list { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 8px; }
@@ -211,3 +211,13 @@
   .rh .chart-fig { overflow-x: auto; -webkit-overflow-scrolling: touch; }
   .rh .chart-fig svg.chart { min-width: 440px; }
 }
+
+/* ===== Results tabs (06-results-tabs-ux.md) ===== */
+/* grade tile: 76 x 76, tinted; A-B pass, C warn, D-F fail */
+.rh .grade-letter { width: 76px; height: 76px; border-radius: 18px; font-size: 2.2rem; color: var(--na); background: var(--na-bg); }
+.rh .g-a .grade-letter, .rh .g-b .grade-letter { background: var(--pass-bg); color: var(--pass); }
+.rh .g-c .grade-letter { background: var(--warn-bg); color: var(--warn); }
+.rh .g-d .grade-letter, .rh .g-f .grade-letter { background: var(--fail-bg); color: var(--fail); }
+.rh .card-head h3, .rh h3 { font-size: 1rem; }
+.rh .summary { font-weight: 600; }
+.rh .sub-verdicts { align-items: start; } /* small cards, not stretched to the tallest */

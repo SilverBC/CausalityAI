@@ -3,20 +3,24 @@ import * as P from "./panes.jsx";
 import { downloadHTML, downloadJSON } from "../report/export.js";
 import { DESIGNS } from "./Intake.jsx";
 
-/** Which tabs show depends on the mode and on what the analysis produced. Pipeline is always last. */
+/** Which tabs show, in a fixed order (06-results-tabs-ux.md §3). Pipeline is added last by <Results>. */
 export function tabsFor(r) {
   if (r.mode === "claim-only")
     return [["overview", "Overview", P.ClaimOverviewPane], ["lit", "Literature", P.ClaimLiteraturePane],
       ["design", "Future Design", P.ClaimDesignPane]];
   const rep = r.report || {};
+  const audit = rep.mode !== "explore";
   const tabs = [["overview", "Overview", P.OverviewPane]];
-  if (rep.mode === "explore" && rep.explore) tabs.push(["discovery", "Causal Discovery", P.DiscoveryPane]);
+  // 2: the usability report always comes second
   if (rep.design?.grade || (rep.sections || []).some((s) => s.key !== "literature"))
     tabs.push(["report", "Data Usability Report", P.UsabilityPane]);
-  if (rep.dag) tabs.push(["dag", "Causal DAG", P.DagPane]);
-  if (rep.estimate) tabs.push(["estimate", "Treatment Effect", P.EstimatePane]);
+  // 3: the assumed DAG in audit mode; in explore mode Discovery takes its slot and draws report.dag itself if needed
+  if (audit && rep.dag) tabs.push(["dag", "Causal DAG", P.DagPane]);
+  if (!audit && rep.explore) tabs.push(["discovery", "Causal Discovery", P.DiscoveryPane]);
+  // 4: in audit mode the tab never disappears; with no number it explains why
+  if (audit || rep.estimate) tabs.push(["estimate", "Treatment Effect", P.EstimatePane]);
   if ((rep.sections || []).some((s) => s.key === "literature")) tabs.push(["lit", "Literature", P.LiteraturePane]);
-  if (rep.suggestion) tabs.push(["design", "Future Design", P.FutureDesignPane]);
+  if (audit || rep.suggestion) tabs.push(["design", "Future Design", P.FutureDesignPane]);
   tabs.push(["code", "Python Code", P.CodePane]);
   if (rep.data && Object.keys(rep.data).length) tabs.push(["data", "Data", P.DataPane]);
   return tabs;
@@ -34,11 +38,35 @@ class PaneBoundary extends Component {
   }
 }
 
-export default function Results({ result, job }) {
+/** `autoScroll`: the run finished in this browser tab, so bring the results into view (not when opening a saved one).
+    `runKey` changes only when the result itself is new (another job, or a re-run), not on every poll of the same job. */
+export default function Results({ result, job, autoScroll = false, runKey }) {
   const tabs = [...tabsFor(result), ["pipeline", "Pipeline", P.PipelinePane]];
   const [active, setActive] = useState("overview");
   const listRef = useRef(null);
-  useEffect(() => { setActive("overview"); }, [job.id]);
+  const sectionRef = useRef(null);
+  // back to Overview whenever a new result arrives: a new job, a saved analysis, or a re-run after answering questions
+  useEffect(() => {
+    setActive("overview");
+    if (!autoScroll) return;
+    // wait for the graph above to take its full height (it grows when the result arrives); scrolling in the same
+    // frame gets cancelled by the browser's scroll anchoring
+    const t = setTimeout(() => {
+      const smooth = !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      sectionRef.current?.scrollIntoView({ behavior: smooth ? "smooth" : "auto", block: "start" });
+    }, 150);
+    return () => clearTimeout(t);
+  }, [runKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The selected tab is never half hidden in the scrolling tab strip. Scroll only the strip, sideways: scrollIntoView
+  // would also scroll the page to bring the tab bar on screen.
+  useEffect(() => {
+    const list = listRef.current;
+    const tab = list?.querySelector(`[data-tab="${active}"]`);
+    if (!tab) return;
+    const left = tab.offsetLeft - list.offsetLeft, right = left + tab.offsetWidth;
+    if (left < list.scrollLeft) list.scrollLeft = Math.max(0, left - 8);
+    else if (right > list.scrollLeft + list.clientWidth) list.scrollLeft = right - list.clientWidth + 8;
+  }, [active, runKey]);
 
   const current = tabs.find(([k]) => k === active) || tabs[0];
   const Pane = current[2];
@@ -54,7 +82,7 @@ export default function Results({ result, job }) {
   }
 
   return (
-    <section className="results" aria-label="Results">
+    <section className="results" aria-label="Results" ref={sectionRef}>
       <div className="results-bar">
         <div className="tabs" role="tablist" aria-label="Result sections" ref={listRef} onKeyDown={onKey}>
           {tabs.map(([k, label]) => (

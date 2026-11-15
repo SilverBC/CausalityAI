@@ -21,7 +21,7 @@ def test_run_lalonde_every_tab_sidebar_and_reload(browser, base_url):
     job = run_lalonde(page, base_url)
 
     # the verdict and estimate from this repo's core
-    assert page.locator(".rh .verdict-label").first.inner_text().strip() == "Supported"
+    assert page.locator(".verdict-chip").first.inner_text().strip() == "Claim supported"
     # every tab renders, none shows the error card
     tabs = page.get_by_role("tab")
     names = [tabs.nth(i).inner_text() for i in range(tabs.count())]
@@ -34,7 +34,7 @@ def test_run_lalonde_every_tab_sidebar_and_reload(browser, base_url):
         assert pane.inner_text().strip(), f"tab {n} is empty"
         assert pane.locator(".card.err").count() == 0, f"tab {n} failed to render"
     page.get_by_role("tab", name="Treatment Effect", exact=True).click()
-    assert page.locator("#result-pane svg.chart").count() >= 1
+    assert page.locator("#result-pane svg[aria-label='Estimates with 95% intervals']").count() == 1   # the forest plot (§5.4)
 
     # the graph is drawn and settles; screenshot it for a visual check of the arrowheads
     canvas = page.locator(".graph-canvas canvas").first
@@ -52,7 +52,7 @@ def test_run_lalonde_every_tab_sidebar_and_reload(browser, base_url):
     assert item.count() == 1 and "lalonde_experimental.csv" in item.inner_text()
     page.reload()
     page.get_by_role("tab", name="Overview", exact=True).wait_for(timeout=30_000)
-    assert page.locator(".rh .verdict-label").first.inner_text().strip() == "Supported"
+    assert page.locator(".verdict-chip").first.inner_text().strip() == "Claim supported"
     assert page.errors == [], page.errors
 
     # the standalone report export renders on its own
@@ -101,7 +101,7 @@ def test_explore_mode_and_needs_input(browser, base_url):
     page.get_by_role("button", name="Run analysis").click()
     page.get_by_role("tab", name="Causal Discovery", exact=True).wait_for(timeout=120_000)
     page.get_by_role("tab", name="Causal Discovery", exact=True).click()
-    assert page.locator("#result-pane svg.chart.dag").count() == 1
+    assert page.locator("#result-pane svg[aria-label='Discovered causal graph']").count() == 1
 
     # a claim whose words match no column: the analysis asks instead of guessing
     page.get_by_role("button", name="Real: LaLonde NSW experiment").click(modifiers=["Shift"])  # data only

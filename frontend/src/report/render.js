@@ -170,7 +170,9 @@ function defineRender(Charts) {
     return '<div class="banner banner-error" role="alert"><strong>Something went wrong here:</strong> ' + esc(msg) + "</div>";
   }
 
-  function sectionCard(sec, extraClass) {
+  // opts.numbersOpen (default true): whether the "Numbers" disclosure starts open
+  function sectionCard(sec, extraClass, opts) {
+    var numbersOpen = !(opts && opts.numbersOpen === false);
     if (!sec) return "";
     var tags = "";
     if (sec.caps_verdict) tags += '<span class="tag tag-cap" title="Because of this check, the verdict cannot be better than Inconclusive">Caps the verdict</span>';
@@ -192,7 +194,7 @@ function defineRender(Charts) {
       (sec.summary ? '<p class="summary">' + esc(sec.summary) + "</p>" : "") +
       errorBox(sec.error) +
       (isExplore ? chartBlock : "") +
-      (Object.keys(small).length ? '<details class="metrics" open><summary>Numbers</summary>' + kvTable(small, 0) + "</details>" : "") +
+      (Object.keys(small).length ? '<details class="metrics"' + (numbersOpen ? " open" : "") + '><summary>Numbers</summary>' + kvTable(small, 0) + "</details>" : "") +
       bigHtml +
       (assumptions.length ? '<h4 class="sub-h">Assumptions</h4><ul class="assumptions">' + assumptions.map(assumptionItem).join("") + "</ul>" : "") +
       (arr(sec.warnings).length ? '<div class="warnings"><h4 class="sub-h">Warnings</h4>' + list(sec.warnings, "warn-list") + "</div>" : "") +
@@ -259,7 +261,7 @@ function defineRender(Charts) {
     var items = arr(report.assumed_panel).filter(function (a) { return a && typeof a === "object"; });
     if (!items.length) return "";
     return '<section class="card assumed-panel" aria-labelledby="assumed-h">' +
-      '<h2 id="assumed-h"><span class="q-icon" aria-hidden="true">?</span>Assumed, not tested</h2>' +
+      '<h3 id="assumed-h"><span class="q-icon" aria-hidden="true">?</span>Assumed, not tested</h3>' +
       '<p class="assumed-lead">These cannot be checked from this data. The result above holds only if each of them is true. ' +
       "Nothing here has passed a test.</p>" +
       '<ul class="assumed-list">' + items.map(function (a) {
@@ -428,7 +430,8 @@ function defineRender(Charts) {
     // the individual pieces, for pages that lay the report out in tabs
     errorsBanner: errorsBanner, verdictBand: verdictBand, subVerdicts: subVerdicts, assumedPanel: assumedPanel,
     claimCard: claimCard, designCard: designCard, estimateCard: estimateCard, dagCard: dagCard, dataCard: dataCard,
-    sectionCard: sectionCard, exploreIntro: exploreIntro, chartsHtml: chartsHtml, list: list
+    sectionCard: sectionCard, exploreIntro: exploreIntro, chartsHtml: chartsHtml, list: list,
+    kvTable: kvTable, recordTable: recordTable, isRecordArray: isRecordArray, human: human
   };
 }
 
