@@ -29,6 +29,55 @@ Tests (from `backend/`):
 python -m pytest tests -q
 ```
 
+## Audit with Opus
+
+A second way to audit a claim, with Opus 5.5 (`claude-opus-5-5`) as the orchestrator. The contract
+between the parts is `ORCHESTRATOR.md`; the code is in `backend/causality/orchestrator/`.
+
+**The model decides:** which columns the claim is about, the design (experiment,
+difference-in-differences, instrument, cutoff, or observational) and why, which columns to adjust
+for and which to leave out (with a reason), which calculations to run, what to ask you, and what
+each piece of evidence means. It asks only what the data cannot show, above all how treatment
+was assigned, and it never calls a design an experiment unless you say assignment was randomized.
+
+**Code computes:** every number (table facts, balance and overlap, design tests, the estimate with
+its 90/95/98/99% intervals, sensitivity to hidden confounding, exploration). Each calculation is
+kept as an evidence item with an id (`e1`, `e2`, ...), and every claim in the verdict must cite one.
+Code never labels evidence as passed or failed; the model judges it.
+
+**Three floor rules** are then applied to the model's verdict. They can only move it to
+*Inconclusive* or add to what is assumed; the model's own verdict stays in the report:
+
+1. *Assumed is not tested*: anything no data can test (for example no hidden confounders) is listed
+   as assumed, and a sensitivity result is never read as support.
+2. *Needs a real interval*: any answer other than Inconclusive must point at an estimate with a
+   finite 95% interval of non-zero width, made with the same design, treatment and outcome.
+3. *No more than the interval*: Supported needs the 95% interval wholly on the claimed side of zero;
+   Not supported needs it wholly on the other side; No effect needs it within plus or minus 0.1
+   standard deviations of the outcome.
+
+Set your key first (the model calls go to the Anthropic API):
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...        # PowerShell: $env:ANTHROPIC_API_KEY = "sk-ant-..."
+```
+
+Command line (from `backend/`):
+
+```bash
+python audit_cli.py data.csv --claim "the program raises earnings" --context "who got the program and how"
+python audit_cli.py data.csv --claim "..." --context-file notes.txt --answer q1="assigned by lottery"
+python audit_cli.py data.csv --claim "..." --full     # the whole report as JSON
+```
+
+In a terminal it asks the model's questions and continues; otherwise it prints them and exits
+with code 3, so you can run it again with `--answer id=text`.
+
+Page: start the server as above, open http://localhost:8000 and choose "Audit with Opus". The API
+behind it is `POST /api/audit` (form fields `file`, `claim`, `context`) and
+`POST /api/audit/{session_id}/answer` (JSON `{"answers": {"<question id>": "<text>"}}`). Both
+return the report; uploads are kept in server memory only (the last 50 audits).
+
 ## What it does
 
 | Stage | Module |

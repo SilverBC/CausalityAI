@@ -17,6 +17,12 @@
 
 <main class="wrap">
   <form id="analyze-form" class="card form-card" novalidate>
+    <fieldset class="mode-switch" id="mode-switch">
+      <legend class="visually-hidden">How to check the claim</legend>
+      <label class="mode-opt"><input type="radio" name="mode" value="analyze" checked> <span>Analyze</span></label>
+      <label class="mode-opt"><input type="radio" name="mode" value="audit"> <span>Audit with Opus</span></label>
+    </fieldset>
+    <p class="small muted audit-only">Opus reads your claim and study description, picks the columns and the study design, runs the checks it needs, and judges what the numbers mean. Fixed rules then make sure the verdict never claims more than the interval shows.</p>
     <div id="drop" class="drop" tabindex="0" role="button" aria-describedby="drop-help">
       <input type="file" id="file" name="file" accept=".csv,.tsv,.txt,.xlsx,.xls,.json" class="visually-hidden">
       <label for="file" class="drop-inner">
@@ -29,12 +35,17 @@
     <p id="columns-info" class="small muted" aria-live="polite"></p>
 
     <label class="field" for="claim">
-      <span class="field-label">Your claim (optional)</span>
+      <span class="field-label">Your claim<span class="analyze-only"> (optional)</span></span>
       <input type="text" id="claim" name="claim" placeholder="X increases Y by 15% among Z" autocomplete="off">
     </label>
-    <p class="small muted mode-hint">With a sentence, we <strong>audit</strong> it. Without one, we <strong>explore</strong> what may cause what.</p>
+    <label class="field audit-only" for="audit-context">
+      <span class="field-label">Study description</span>
+      <textarea id="audit-context" name="context" rows="4" placeholder="How was the data collected? Who got the treatment, and how was that decided (by lot, by a rule, by choice)? What was measured before and after?"></textarea>
+      <span class="small muted">Above all, say how treatment was assigned. Opus will only call a study an experiment if you say assignment was random.</span>
+    </label>
+    <p class="small muted mode-hint analyze-only">With a sentence, we <strong>audit</strong> it. Without one, we <strong>explore</strong> what may cause what.</p>
 
-    <details class="roles-panel">
+    <details class="roles-panel analyze-only">
       <summary>Study design and roles (optional)</summary>
       <div class="roles-grid">
         <label class="field" for="design"><span class="field-label">Study design</span>
@@ -67,21 +78,27 @@
       <p class="small muted indent">We never call something an experiment unless you say so.</p>
     </details>
 
-    <label class="check"><input type="checkbox" id="online"> Search for related reading online <span class="muted">(sends only the treatment and outcome words)</span></label>
+    <label class="check analyze-only"><input type="checkbox" id="online"> Search for related reading online <span class="muted">(sends only the treatment and outcome words)</span></label>
 
     <div class="actions">
-      <button type="submit" id="analyze-btn" class="btn primary"><span class="spinner" aria-hidden="true"></span><span class="btn-text">Analyze</span></button>
+      <button type="submit" id="analyze-btn" class="btn primary analyze-only"><span class="spinner" aria-hidden="true"></span><span class="btn-text">Analyze</span></button>
+      <button type="submit" id="audit-btn" class="btn primary audit-only"><span class="spinner" aria-hidden="true"></span><span class="btn-text">Audit with Opus</span></button>
+      <a href="?sample=opus" id="audit-sample" class="audit-sample audit-only">Load sample audit</a>
     </div>
   </form>
 
-  <div id="banner" class="banner" role="alert" hidden></div>
+  <div class="analyze-only">
+    <div id="banner" class="banner" role="alert" hidden></div>
 
-  <div id="export-bar" class="export-bar" hidden>
-    <button type="button" id="dl-json" class="btn">Download JSON</button>
-    <button type="button" id="dl-html" class="btn">Download HTML</button>
+    <div id="export-bar" class="export-bar" hidden>
+      <button type="button" id="dl-json" class="btn">Download JSON</button>
+      <button type="button" id="dl-html" class="btn">Download HTML</button>
+    </div>
+
+    <div id="results" aria-live="polite"></div>
   </div>
 
-  <div id="results" aria-live="polite"></div>
+  <div id="audit-results" class="audit-only" aria-live="polite"></div>
 </main>
 
 <footer class="site-foot wrap small muted">CausalityAI never claims more than the data can show. “Assumed” is never a pass.</footer>
@@ -89,5 +106,6 @@
 <script src="charts.js"></script>
 <script src="app.js"></script>
 <script src="export.js"></script>
+<script src="audit.js"></script>
 </body>
 </html>
