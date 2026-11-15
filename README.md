@@ -5,7 +5,7 @@
 Upload a table and a sentence like *"the scholarship raised test scores"*. Gemini investigates the data, and
 statistics code decides how much it is allowed to claim. The one rule: **never claim more than the data can show.**
 
-Built at HackPrinceton (Science & Biology track, Gemini track).
+Built at HackPrinceton (Science & Discovery track, Gemini track).
 
 ## Install and run
 
